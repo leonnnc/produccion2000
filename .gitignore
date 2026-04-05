@@ -1,0 +1,7 @@
+# Backups y ZIPs locales
+backup_*/
+*.zip
+
+# Sistema
+.DS_Store
+Thumbs.db

@@ -1,0 +1,2104 @@
+// ==========================================
+// DASHBOARD ERP — dashboard.js
+// ==========================================
+
+const showNotification = (message, type = 'success') => {
+    let container = document.getElementById('notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'notification-container';
+        container.className = 'notification-container';
+        document.body.appendChild(container);
+    }
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    const iconSvg = type === 'success'
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01"></path></svg>';
+    notification.innerHTML = `<div class="notification-icon">${iconSvg}</div><div class="notification-message">${message}</div>`;
+    container.appendChild(notification);
+    requestAnimationFrame(() => requestAnimationFrame(() => notification.classList.add('show')));
+    setTimeout(() => { notification.classList.remove('show'); setTimeout(() => notification.remove(), 400); }, 4500);
+};
+
+function confirmar(titulo, mensaje, onOk) {
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-title').textContent   = titulo;
+    document.getElementById('confirm-message').textContent = mensaje;
+    modal.classList.remove('hidden');
+    const btnOkOld = document.getElementById('confirm-ok');
+    const btnOk    = btnOkOld.cloneNode(true);
+    btnOkOld.parentNode.replaceChild(btnOk, btnOkOld);
+    const btnCancel = document.getElementById('confirm-cancel');
+    const close = () => modal.classList.add('hidden');
+    btnOk.addEventListener('click', () => { close(); onOk(); });
+    btnCancel.onclick = close;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    const sesionRaw = sessionStorage.getItem('sesion_activa');
+    const sesion    = sesionRaw ? JSON.parse(sesionRaw) : null;
+    if (!sesion) { window.location.replace('index.html'); return; }
+
+    const displayName = { textContent: sesion.nombre }; // referencia virtual
+    const displayRole = document.querySelector('.user-role');
+    if (displayRole) displayRole.textContent = sesion.rol === 'Admin' ? 'Administrador' : sesion.rol === 'Staff' ? 'Staff' : 'Siervo';
+
+    const avatarEl = document.querySelector('.user-info .avatar');
+    if (avatarEl) {
+        const iniciales = sesion.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+        avatarEl.textContent = iniciales;
+        avatarEl.style.fontSize = '1rem';
+        avatarEl.style.fontWeight = '800';
+    }
+
+    const esAdmin = sesion.rol === 'Admin';
+
+    const permitido = {
+        'Admin':  ['dashboard-view','usuarios-view','proyectos-view','staff-view','agenda-view','recursos-view','ajustes-view'],
+        'Staff':  ['dashboard-view','staff-view','agenda-view','recursos-view'],
+        'Siervo': ['dashboard-view','agenda-view','recursos-view']
+    };
+    const acceso = permitido[sesion.rol] || permitido['Siervo'];
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
+        link.parentElement.style.display = acceso.includes(link.getAttribute('data-target')) ? '' : 'none';
+    });
+
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
+        const text = link.textContent.trim();
+        if (text) link.setAttribute('title', text);
+    });
+    document.querySelector('.logout-btn')?.setAttribute('title', 'Cerrar Sesion');
+
+    document.querySelector('.logout-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        confirmar('Cerrar sesion', '\u00bfSeguro que quieres salir?', () => {
+            sessionStorage.removeItem('sesion_activa');
+            window.location.replace('index.html');
+        });
+    });
+
+    const navLinks     = document.querySelectorAll('.sidebar-nav .nav-link');
+    const viewSections = document.querySelectorAll('.view-section');
+
+    function irA(targetId) {
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        const link = document.querySelector(`.nav-link[data-target="${targetId}"]`);
+        if (link) link.parentElement.classList.add('active');
+        viewSections.forEach(v => { v.classList.remove('active-view'); v.classList.add('hidden-view'); });
+        const target = document.getElementById(targetId);
+        if (target) { target.classList.remove('hidden-view'); target.classList.add('active-view'); }
+    }
+
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => { e.preventDefault(); irA(link.getAttribute('data-target')); });
+    });
+
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const modalId = btn.getAttribute('data-modal');
+            if (modalId) document.getElementById(modalId)?.classList.add('hidden');
+        });
+    });
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+    });
+
+    // ─── ESTADISTICAS ────────────────────────────────────────
+    function actualizarEstadisticas() {
+        const sets = [
+            { key: 'usuarios_registrados', statId: 'stat-usuarios',  labelId: 'stat-usuarios-label',  empty: 'Sin registros', filled: n => `${n} activos` },
+            { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin proyectos', filled: n => `${n} en total` },
+            { key: 'servicios_reservados', statId: 'stat-servicios', labelId: 'stat-servicios-label', empty: 'Sin reservas',  filled: n => `${n} este mes` },
+            { key: 'tareas_staff',         statId: 'stat-tareas',    labelId: 'stat-tareas-label',    empty: 'Sin tareas',   filled: n => `${n} en total` },
+        ];
+        sets.forEach(({ key, statId, labelId, empty, filled }) => {
+            const n = JSON.parse(localStorage.getItem(key) || '[]').length;
+            const el = document.getElementById(statId);
+            const lb = document.getElementById(labelId);
+            if (el) el.textContent = n;
+            if (lb) { lb.textContent = n === 0 ? empty : filled(n); lb.className = `trend ${n > 0 ? 'positive' : 'neutral'}`; }
+        });
+    }
+    actualizarEstadisticas();
+
+    // ─── TARJETA DE BIENVENIDA CON ROL Y ACCESOS ─────────────
+    const bienvenidaContent = document.getElementById('bienvenida-content');
+    if (bienvenidaContent) {
+        const hora = new Date().getHours();
+        const momento = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+        const rolLabel = sesion.rol === 'Admin' ? 'Administrador' : sesion.rol === 'Staff' ? 'Staff' : 'Siervo';
+        const rolColor = sesion.rol === 'Admin' ? '#ff4757' : sesion.rol === 'Staff' ? '#4facfe' : '#2ed573';
+
+        const accesosPorRol = {
+            'Admin':  ['Dashboard', 'Usuarios', 'Proyectos', 'Staff', 'Agenda', 'Recursos', 'Ajustes'],
+            'Staff':  ['Dashboard', 'Staff', 'Agenda', 'Recursos'],
+            'Siervo': ['Dashboard', 'Agenda', 'Recursos']
+        };
+        const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
+
+        const descripcionRol = {
+            'Admin':  'Tienes acceso completo al sistema. Puedes gestionar usuarios, proyectos, tareas y toda la configuración.',
+            'Staff':  'Puedes ver y gestionar tareas asignadas, reservar servicios en la agenda y acceder a recursos del equipo.',
+            'Siervo': 'Puedes reservar servicios en la agenda y acceder a los recursos y materiales del equipo.'
+        };
+
+        bienvenidaContent.innerHTML = `
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:white;flex-shrink:0;">
+                    ${sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase()}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <span style="font-size:0.95rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span></span>
+                    <span style="font-size:0.78rem;color:var(--text-muted);margin-left:8px;">${sesion.area || ''} · <span style="color:${rolColor};font-weight:600;">${rolLabel}</span></span>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                </div>
+            </div>`;
+    }
+
+    // ─── TABLA DE USUARIOS ───────────────────────────────────
+    const usuariosTbody = document.getElementById('usuarios-tbody');
+
+    function accionesParaRol(u) {
+        if (!esAdmin) return '';
+        const editBtn  = `<button class="btn-primary btn-small btn-edit" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);">\u270f\ufe0f</button>`;
+        const delBtn   = `<button class="btn-danger btn-del">\ud83d\uddd1\ufe0f</button>`;
+        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:4px 8px;font-size:0.7rem;" title="Resetear contrase\u00f1a">\ud83d\udd11</button>`;
+        let extra = '';
+        if (u.rol === 'Siervo') {
+            extra = `<button class="btn-primary btn-small btn-upgrade" data-role="staff" style="padding:4px 8px;font-size:0.7rem;background:rgba(79,172,254,0.2);border:1px solid var(--primary-color);">\u2191 Staff</button>
+                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">\u2191 Admin</button>`;
+        } else if (u.rol === 'Staff') {
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo">\u2193 Siervo</button>
+                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">\u2191 Admin</button>`;
+        } else if (u.rol === 'Admin') {
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="staff">\u2193 Staff</button>`;
+        }
+        return `<div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
+    }
+
+    function crearFilaUsuario(u) {
+        const rolClass = u.rol === 'Admin' ? 'role-admin' : u.rol === 'Staff' ? 'role-staff' : 'role-siervo';
+        const tr = document.createElement('tr');
+        tr.dataset.correo = u.correo;
+        tr.innerHTML = `
+            <td><div class="user-cell">
+                <div class="activity-avatar" style="width:35px;height:35px;font-size:1.1rem;display:flex;">\ud83d\udc64</div>
+                <div><strong>${u.nombre}</strong><br><span class="activity-time">${u.correo}</span></div>
+            </div></td>
+            <td>${u.area}</td>
+            <td><span class="role-badge ${rolClass}">${u.rol}</span></td>
+            <td>${u.telefono || '\u2014'}</td>
+            <td class="text-center">${accionesParaRol(u)}</td>`;
+        return tr;
+    }
+
+    function cargarTablaUsuarios(filtroRol = '', filtroArea = '') {
+        if (!usuariosTbody) return;
+        usuariosTbody.innerHTML = '';
+        let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        if (filtroRol)  usuarios = usuarios.filter(u => u.rol === filtroRol);
+        if (filtroArea) usuarios = usuarios.filter(u => u.area.toLowerCase() === filtroArea.toLowerCase());
+        if (usuarios.length === 0) {
+            usuariosTbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);"><div style="font-size:2rem;margin-bottom:10px;">\ud83d\udc64</div><p>No hay usuarios con esos filtros.</p></td></tr>`;
+        } else {
+            usuarios.forEach(u => usuariosTbody.appendChild(crearFilaUsuario(u)));
+        }
+    }
+    cargarTablaUsuarios();
+
+    document.getElementById('filtro-rol')?.addEventListener('change',  e => cargarTablaUsuarios(e.target.value, document.getElementById('filtro-area').value));
+    document.getElementById('filtro-area')?.addEventListener('change', e => cargarTablaUsuarios(document.getElementById('filtro-rol').value, e.target.value));
+
+    function poblarSelectAsignado() {
+        const sel = document.getElementById('staff-asignado');
+        if (!sel) return;
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        sel.innerHTML = '<option value="" disabled selected>Selecciona un usuario...</option>';
+        usuarios.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.nombre;
+            opt.textContent = `${u.nombre} (${u.area})`;
+            sel.appendChild(opt);
+        });
+    }
+    poblarSelectAsignado();
+
+    // ─── ACCIONES TABLA USUARIOS ─────────────────────────────
+    const tablaUsuariosAdmin = document.getElementById('tabla-usuarios-admin');
+    if (tablaUsuariosAdmin && esAdmin) {
+        tablaUsuariosAdmin.addEventListener('click', (e) => {
+            const fila = e.target.closest('tr');
+            if (!fila) return;
+            const correoUsuario = fila.dataset.correo;
+            if (e.target.classList.contains('btn-edit')) { openEditModal(fila); }
+            if (e.target.classList.contains('btn-reset-pwd')) {
+                const nombre = fila.querySelector('.user-cell strong')?.textContent || correoUsuario;
+                confirmar('Resetear contrase\u00f1a', `\u00bfResetear la contrase\u00f1a de "${nombre}"? Se establecer\u00e1 como "Reset2024!".`, () => {
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
+                    if (idx !== -1) { usuarios[idx].clave = btoa('Reset2024!'); localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    showNotification(`Contrase\u00f1a de "${nombre}" reseteada a "Reset2024!".`);
+                });
+            }
+            if (e.target.classList.contains('btn-del')) {
+                const nombre = fila.querySelector('.user-cell strong')?.textContent || correoUsuario;
+                confirmar('Eliminar usuario', `\u00bfEliminar a "${nombre}"?`, () => {
+                    let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    usuarios = usuarios.filter(u => u.correo !== correoUsuario);
+                    localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                    cargarTablaUsuarios(); actualizarEstadisticas(); poblarSelectAsignado();
+                    showNotification(`Usuario "${nombre}" eliminado.`);
+                });
+            }
+            if (e.target.classList.contains('btn-upgrade')) {
+                const targetRole = e.target.getAttribute('data-role');
+                const nombre = fila.querySelector('.user-cell strong')?.textContent || '';
+                const nomRolVer = targetRole === 'admin' ? 'Admin' : 'Staff';
+                confirmar('Cambiar rol', `\u00bfAscender a "${nombre}" como ${nomRolVer}?`, () => {
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
+                    if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+                    showNotification(`${nombre} ahora es ${nomRolVer}.`);
+                });
+            }
+            if (e.target.classList.contains('btn-downgrade-btn')) {
+                const targetRole = e.target.getAttribute('data-role');
+                const nombre = fila.querySelector('.user-cell strong')?.textContent || '';
+                const nomRolVer = targetRole === 'staff' ? 'Staff' : 'Siervo';
+                confirmar('Cambiar rol', `\u00bfDegadar a "${nombre}" como ${nomRolVer}?`, () => {
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
+                    if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+                    showNotification(`${nombre} ahora es ${nomRolVer}.`);
+                });
+            }
+        });
+    }
+
+    const editModal = document.getElementById('edit-user-modal');
+    const editForm  = document.getElementById('edit-user-form');
+    let currentEditRow = null;
+
+    function openEditModal(fila) {
+        currentEditRow = fila;
+        document.getElementById('edit-nombre').value   = fila.querySelector('.user-cell strong')?.textContent || '';
+        document.getElementById('edit-correo').value   = fila.querySelector('.user-cell .activity-time')?.textContent || '';
+        document.getElementById('edit-password').value = '';
+        const area = fila.cells[1]?.textContent || '';
+        const sel  = document.getElementById('edit-area');
+        if (sel) for (const opt of sel.options) opt.selected = opt.value === area;
+        editModal.classList.remove('hidden');
+    }
+
+    editForm?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!currentEditRow) return;
+        const nuevoNombre    = document.getElementById('edit-nombre').value.trim();
+        const nuevoCorreo    = document.getElementById('edit-correo').value.trim();
+        const nuevaArea      = document.getElementById('edit-area').value;
+        const nuevaClave     = document.getElementById('edit-password').value;
+        const correoOriginal = currentEditRow.dataset.correo;
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const idx = usuarios.findIndex(u => u.correo === correoOriginal);
+        if (idx !== -1) {
+            usuarios[idx].nombre = nuevoNombre; usuarios[idx].correo = nuevoCorreo; usuarios[idx].area = nuevaArea;
+            if (nuevaClave) usuarios[idx].clave = btoa(nuevaClave);
+            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+        }
+        if (correoOriginal === sesion.correo) {
+            sesion.nombre = nuevoNombre; sesion.correo = nuevoCorreo; sesion.area = nuevaArea;
+            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+            if (displayName) displayName.textContent = nuevoNombre;
+        }
+        cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+        poblarSelectAsignado();
+        editModal.classList.add('hidden');
+        showNotification('Usuario actualizado correctamente.');
+    });
+
+    // ─── AREAS COUNTER (+/-) ─────────────────────────────────
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('area-plus') || e.target.classList.contains('area-minus')) {
+            const row   = e.target.closest('.area-row');
+            const input = row?.querySelector('.area-cantidad');
+            if (!input) return;
+            const val = parseInt(input.value) || 0;
+            input.value = e.target.classList.contains('area-plus') ? val + 1 : Math.max(0, val - 1);
+            row.classList.toggle('area-activa', parseInt(input.value) > 0);
+        }
+        if (e.target.classList.contains('area-cantidad')) return;
+    });
+    document.addEventListener('input', (e) => {
+        if (e.target.classList.contains('area-cantidad')) {
+            const row = e.target.closest('.area-row');
+            if (row) row.classList.toggle('area-activa', parseInt(e.target.value) > 0);
+        }
+    });
+
+    // ─── PROYECTOS ───────────────────────────────────────────
+    if (!esAdmin) {
+        document.getElementById('crear-proyecto-panel')?.style && (document.getElementById('crear-proyecto-panel').style.display = 'none');
+    }
+
+    function estadoBadge(estado) {
+        const cls = estado === 'Planificado' ? 'estado-planificado' : estado === 'En curso' ? 'estado-en-curso' : 'estado-completado';
+        return `<span class="estado-badge ${cls}">${estado}</span>`;
+    }
+
+    function calcularEstadoProyecto(p) {
+        if (!p.fecha) return 'Planificado';
+        const hora = p.hora || '00:00';
+        const fechaEvento = new Date(`${p.fecha}T${hora}:00`);
+        const ahora = new Date();
+        const manana = new Date(fechaEvento);
+        manana.setDate(manana.getDate() + 1);
+        manana.setHours(0, 0, 0, 0);
+        if (ahora >= manana)      return 'Completado';
+        if (ahora >= fechaEvento) return 'En curso';
+        return 'Planificado';
+    }
+
+    function cuentaRegresiva(p) {
+        if (!p.fecha) return '';
+        const hora = p.hora || '00:00';
+        const fechaEvento = new Date(`${p.fecha}T${hora}:00`);
+        const diff = fechaEvento - new Date();
+        if (diff <= 0) return '';
+        const dias  = Math.floor(diff / 86400000);
+        const horas = Math.floor((diff % 86400000) / 3600000);
+        const mins  = Math.floor((diff % 3600000) / 60000);
+        if (dias > 0)  return `\u23f3 Faltan ${dias}d ${horas}h`;
+        if (horas > 0) return `\u23f3 Faltan ${horas}h ${mins}m`;
+        return `\u23f3 Faltan ${mins} min`;
+    }
+
+    function verificarAlertasProyecto() {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const areaUsuario = (sesion.area || '').toLowerCase();
+        proyectos.forEach(p => {
+            if (!p.fecha || !p.hora) return;
+            const fechaEvento = new Date(`${p.fecha}T${p.hora}:00`);
+            const diff = fechaEvento - new Date();
+            const alertaKey = `alerta_1h_${p.fecha_registro}`;
+            if (diff > 55 * 60000 && diff <= 65 * 60000 && !localStorage.getItem(alertaKey)) {
+                const involucrado = esAdmin || (p.areasData && p.areasData.some(a => a.area.toLowerCase() === areaUsuario));
+                if (involucrado) {
+                    showNotification(`\u26a0\ufe0f "${p.nombre}" comienza en 1 hora. \u00a1Prep\u00e1rate!`, 'success');
+                    localStorage.setItem(alertaKey, '1');
+                }
+            }
+        });
+    }
+    verificarAlertasProyecto();
+    setInterval(verificarAlertasProyecto, 60000);
+
+    // ─── NOTIFICACIONES PUSH DEL NAVEGADOR ───────────────────
+    function solicitarPermisoNotificaciones() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+    solicitarPermisoNotificaciones();
+
+    function enviarNotificacionPush(titulo, cuerpo) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(titulo, { body: cuerpo, icon: '' });
+        }
+    }
+
+    // Verificar alertas push (1h antes) — también envía push
+    function verificarAlertasPush() {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const areaUsuario = (sesion.area || '').toLowerCase();
+        proyectos.forEach(p => {
+            if (!p.fecha || !p.hora) return;
+            const fechaEvento = new Date(`${p.fecha}T${p.hora}:00`);
+            const diff = fechaEvento - new Date();
+            const pushKey = `push_1h_${p.fecha_registro}`;
+            if (diff > 55 * 60000 && diff <= 65 * 60000 && !localStorage.getItem(pushKey)) {
+                const involucrado = esAdmin || (p.areasData && p.areasData.some(a => a.area.toLowerCase() === areaUsuario));
+                if (involucrado) {
+                    enviarNotificacionPush(`\u26a0\ufe0f ${p.nombre}`, 'El evento comienza en 1 hora. \u00a1Prep\u00e1rate!');
+                    localStorage.setItem(pushKey, '1');
+                }
+            }
+        });
+    }
+    setInterval(verificarAlertasPush, 60000);
+    verificarAlertasPush();
+
+    function renderProyectos() {
+        const lista = document.getElementById('proyectos-lista');
+        const historialEl = document.getElementById('proyectos-historial');
+        const count = document.getElementById('proyectos-count');
+        const historialCount = document.getElementById('historial-count');
+        if (!lista) return;
+
+        let proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const filtroEstado = document.getElementById('filtro-estado-proy')?.value || '';
+
+        // Separar activos (fecha futura o hoy) de historial (fecha pasada = Completado)
+        const ahora = new Date(); ahora.setHours(0,0,0,0);
+        const activos   = proyectos.filter(p => {
+            const estado = calcularEstadoProyecto(p);
+            return estado !== 'Completado';
+        });
+        const historial = proyectos.filter(p => calcularEstadoProyecto(p) === 'Completado');
+
+        // Aplicar filtro de estado solo a activos
+        const activosFiltrados = filtroEstado
+            ? activos.filter(p => calcularEstadoProyecto(p) === filtroEstado)
+            : activos;
+
+        if (count) count.textContent = activosFiltrados.length > 0 ? `${activosFiltrados.length} proyecto(s)` : '';
+        if (historialCount) historialCount.textContent = historial.length > 0 ? `${historial.length} evento(s)` : '';
+
+        // ── Render activos ──
+        lista.innerHTML = '';
+        if (activosFiltrados.length === 0) {
+            lista.innerHTML = '<p style="color:var(--text-muted);padding:16px 0;">No hay proyectos activos.</p>';
+        } else {
+            [...activosFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach((p, i) => {
+                const estado    = calcularEstadoProyecto(p);
+                const regresiva = cuentaRegresiva(p);
+                const card = document.createElement('div');
+                const cardEstadoCls = estado === 'Planificado' ? 'estado-planificado-card' : 'estado-en-curso-card';
+                card.className = `proyecto-card ${cardEstadoCls}`;
+                card.dataset.fechaReg = p.fecha_registro;
+                const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+                const horaFmt  = p.hora ? ` \u00b7 ${p.hora}` : '';
+                const areasResumen = p.areasData ? p.areasData.map(a => `${a.area}(${a.cantidad})`).join(', ') : (p.areas || '\u2014');
+                const realIdx = proyectos.indexOf(p);
+
+                let asistenciaHtml = '';
+                if (esAdmin && p.areasData) {
+                    const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const areasDelProy = p.areasData.map(a => a.area.toLowerCase());
+                    const involucrados = usuarios.filter(u => areasDelProy.includes((u.area || '').toLowerCase()));
+                    const confirmados  = involucrados.filter(u => asistencias[`${p.fecha_registro}_${u.correo}`] === 'confirma').length;
+                    const noPueden    = involucrados.filter(u => asistencias[`${p.fecha_registro}_${u.correo}`] === 'no-puedo').length;
+                    const sinResp     = involucrados.length - confirmados - noPueden;
+                    if (involucrados.length > 0) {
+                        asistenciaHtml = `<p class="proy-asistencia-resumen">
+                            <span class="asist-ok">\u2713 ${confirmados}</span>
+                            <span class="asist-no">\u2715 ${noPueden}</span>
+                            <span class="asist-pend">\u25cb ${sinResp} sin resp.</span>
+                        </p>`;
+                    }
+                }
+
+                card.innerHTML = `
+                    <div class="proyecto-card-info">
+                        <h4>${p.nombre} ${estadoBadge(estado)}</h4>
+                        <p>\ud83d\udcc5 ${fechaFmt}${horaFmt} &nbsp;\u00b7&nbsp; \ud83d\udc65 ${p.siervos || '\u2014'} siervos</p>
+                        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;">\ud83c\udfaf ${areasResumen}</p>
+                        ${regresiva ? `<p class="proy-cuenta-regresiva" data-fecha="${p.fecha}" data-hora="${p.hora || '00:00'}">${regresiva}</p>` : ''}
+                        ${asistenciaHtml}
+                    </div>
+                    <div class="proyecto-card-actions">
+                        <button class="btn-secondary btn-ver-proy" data-idx="${realIdx}">Ver</button>
+                        <button class="btn-secondary btn-comentarios-proy" data-key="${p.fecha_registro}" style="font-size:0.75rem;">\ud83d\udcac</button>
+                        ${esAdmin ? `<button class="btn-secondary btn-edit-proy" data-idx="${realIdx}">\u270f\ufe0f</button>` : ''}
+                        ${esAdmin ? `<button class="btn-danger btn-del-proy" data-idx="${realIdx}">\ud83d\uddd1\ufe0f</button>` : ''}
+                    </div>`;
+                lista.appendChild(card);
+            });
+        }
+
+        // ── Render historial ──
+        if (historialEl) {
+            historialEl.innerHTML = '';
+            if (historial.length === 0) {
+                historialEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin eventos completados aún.</p>';
+            } else {
+                [...historial].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(p => {
+                    const realIdx = proyectos.indexOf(p);
+                    const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+                    const item = document.createElement('div');
+                    item.className = 'historial-item';
+                    item.innerHTML = `
+                        <div class="historial-info">
+                            <span class="historial-nombre">\ud83d\udcc5 ${p.nombre}</span>
+                            <span class="historial-fecha">${fechaFmt}${p.hora ? ' \u00b7 ' + p.hora : ''}</span>
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn-secondary btn-ver-proy" data-idx="${realIdx}" style="padding:3px 8px;font-size:0.75rem;">Ver</button>
+                            ${esAdmin ? `<button class="btn-danger btn-del-proy" data-idx="${realIdx}" style="padding:3px 8px;font-size:0.75rem;">\ud83d\uddd1\ufe0f</button>` : ''}
+                        </div>`;
+                    historialEl.appendChild(item);
+                });
+            }
+        }
+
+        // Actualizar cuentas regresivas cada minuto
+        clearInterval(window._cuentaRegresivaInterval);
+        window._cuentaRegresivaInterval = setInterval(() => {
+            document.querySelectorAll('.proy-cuenta-regresiva').forEach(el => {
+                const p = { fecha: el.dataset.fecha, hora: el.dataset.hora };
+                const nueva = cuentaRegresiva(p);
+                if (nueva) el.textContent = nueva;
+                else el.remove();
+            });
+        }, 60000);
+    }
+    renderProyectos();
+
+    document.getElementById('proyectos-lista')?.addEventListener('click', (e) => {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+
+        if (e.target.classList.contains('btn-ver-proy') || e.target.classList.contains('btn-edit-proy') || e.target.classList.contains('btn-del-proy') || e.target.classList.contains('btn-comentarios-proy')) {
+            manejarClickProyecto(e, proyectos);
+        }
+    });
+
+    document.getElementById('proyectos-historial')?.addEventListener('click', (e) => {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        manejarClickProyecto(e, proyectos);
+    });
+
+    function manejarClickProyecto(e, proyectos) {
+        const idx = parseInt(e.target.dataset.idx);
+        const p   = proyectos[idx];
+        if (!p) return;
+
+        if (e.target.classList.contains('btn-ver-proy')) {
+            const estado    = calcularEstadoProyecto(p);
+            const regresiva = cuentaRegresiva(p);
+            const fechaFmt  = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+            const horaFmt   = p.hora || '\u2014';
+            document.getElementById('proy-modal-nombre').textContent = p.nombre;
+            document.getElementById('proy-modal-body').innerHTML = `
+                <div class="proy-detail-row"><span>Estado:</span><span>${estadoBadge(estado)}</span></div>
+                <div class="proy-detail-row"><span>Fecha:</span><span>${fechaFmt}</span></div>
+                <div class="proy-detail-row"><span>Hora:</span><span>${horaFmt}</span></div>
+                ${regresiva ? `<div class="proy-detail-row"><span>Tiempo:</span><span style="color:var(--secondary-color);">${regresiva}</span></div>` : ''}
+                <div class="proy-detail-row"><span>Total siervos:</span><span>${p.siervos || '\u2014'}</span></div>
+                <div class="proy-detail-row"><span>\u00c1reas:</span><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${
+                    p.areasData
+                        ? p.areasData.map(a => {
+                            const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                            const lider   = lideres[a.area] ? ` \u00b7 ${lideres[a.area]}` : '';
+                            return `<span class="area-badge">${a.area} <strong>${a.cantidad}</strong>${lider ? `<span style="color:var(--secondary-color);font-size:0.7rem;"> ${lider}</span>` : ''}</span>`;
+                          }).join('')
+                        : (p.areas || '\u2014')
+                }</div></div>
+                ${p.desc ? `<div class="proy-detail-row"><span>Notas:</span><span>${p.desc}</span></div>` : ''}
+                <div class="proy-detail-row"><span>Creado:</span><span>${new Date(p.fecha_registro).toLocaleDateString('es')}</span></div>`;
+            document.getElementById('proy-modal-acciones').innerHTML = '';
+            document.getElementById('proyecto-modal').classList.remove('hidden');
+        }
+
+        if (e.target.classList.contains('btn-edit-proy') && esAdmin) {
+            document.getElementById('ep-nombre').value = p.nombre;
+            document.getElementById('ep-fecha').value  = p.fecha || '';
+            document.getElementById('ep-hora').value   = p.hora  || '';
+            document.getElementById('ep-desc').value   = p.desc  || '';
+            document.querySelectorAll('#ep-areas-container .area-row').forEach(row => {
+                const found = p.areasData?.find(a => a.area === row.dataset.area);
+                row.querySelector('.area-cantidad').value = found ? found.cantidad : 0;
+            });
+            document.getElementById('edit-proyecto-modal')._proyKey = p.fecha_registro;
+            document.getElementById('edit-proyecto-modal').classList.remove('hidden');
+        }
+
+        if (e.target.classList.contains('btn-comentarios-proy')) {
+            abrirComentarios(`proy_${p.fecha_registro}`, p.nombre);
+        }
+
+        if (e.target.classList.contains('btn-del-proy') && esAdmin) {
+            confirmar('Eliminar proyecto', `\u00bfEliminar "${p.nombre}"?`, () => {
+                const allProyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                const realIdx = allProyectos.findIndex(x => x.fecha_registro === p.fecha_registro);
+                if (realIdx !== -1) allProyectos.splice(realIdx, 1);
+                localStorage.setItem('proyectos_creados', JSON.stringify(allProyectos));
+                renderProyectos(); actualizarEstadisticas();
+                showNotification('Proyecto eliminado.');
+            });
+        }
+    }
+
+    const formProyectos = document.getElementById('proyectos-form');
+    if (formProyectos && esAdmin) {
+        formProyectos.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById('proj-nombre').value.trim();
+            const fecha  = document.getElementById('proj-fecha').value;
+            const hora   = document.getElementById('proj-hora').value;
+            const desc   = document.getElementById('proj-desc').value.trim();
+            const areasData = [];
+            document.querySelectorAll('#proj-areas-container .area-row').forEach(row => {
+                const cantidad = parseInt(row.querySelector('.area-cantidad').value) || 0;
+                if (cantidad > 0) areasData.push({ area: row.dataset.area, cantidad });
+            });
+            if (areasData.length === 0) { showNotification('Agrega al menos un \u00e1rea con siervos requeridos.', 'error'); return; }
+            const totalSiervos = areasData.reduce((acc, a) => acc + a.cantidad, 0);
+            const areasTexto   = areasData.map(a => `${a.area}(${a.cantidad})`).join(', ');
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            proyectos.push({ nombre, fecha, hora, siervos: totalSiervos, areasData, areas: areasTexto, desc, fecha_registro: new Date().toISOString() });
+            localStorage.setItem('proyectos_creados', JSON.stringify(proyectos));
+            renderProyectos(); actualizarEstadisticas();
+            showNotification(`Proyecto "${nombre}" creado.`);
+            formProyectos.reset();
+            document.querySelectorAll('#proj-areas-container .area-cantidad').forEach(i => i.value = 0);
+            renderDashboardProyectosYTareas();
+            irA('dashboard-view');
+        });
+    }
+
+    // ─── EDITAR PROYECTO ─────────────────────────────────────
+    document.getElementById('edit-proyecto-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const key = document.getElementById('edit-proyecto-modal')._proyKey;
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const idx = proyectos.findIndex(x => x.fecha_registro === key);
+        if (idx === -1) return;
+        const areasData = [];
+        document.querySelectorAll('#ep-areas-container .area-row').forEach(row => {
+            const cantidad = parseInt(row.querySelector('.area-cantidad').value) || 0;
+            if (cantidad > 0) areasData.push({ area: row.dataset.area, cantidad });
+        });
+        proyectos[idx].nombre   = document.getElementById('ep-nombre').value.trim();
+        proyectos[idx].fecha    = document.getElementById('ep-fecha').value;
+        proyectos[idx].hora     = document.getElementById('ep-hora').value;
+        proyectos[idx].desc     = document.getElementById('ep-desc').value.trim();
+        proyectos[idx].areasData = areasData;
+        proyectos[idx].siervos  = areasData.reduce((acc, a) => acc + a.cantidad, 0);
+        proyectos[idx].areas    = areasData.map(a => `${a.area}(${a.cantidad})`).join(', ');
+        localStorage.setItem('proyectos_creados', JSON.stringify(proyectos));
+        document.getElementById('edit-proyecto-modal').classList.add('hidden');
+        renderProyectos(); renderDashboardProyectosYTareas();
+        showNotification('Proyecto actualizado.');
+    });
+
+    // ─── STAFF / TAREAS ──────────────────────────────────────
+    if (!esAdmin) document.getElementById('crear-tarea-panel')?.style && (document.getElementById('crear-tarea-panel').style.display = 'none');
+
+    function cargarMisTareas() {
+        const misTareasList  = document.getElementById('mis-tareas-list');
+        const misTareasCount = document.getElementById('mis-tareas-count');
+        if (!misTareasList) return;
+        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const ahora = new Date();
+        const hoy = new Date(); hoy.setHours(0,0,0,0);
+        const mes = ahora.getMonth(), anio = ahora.getFullYear();
+
+        // Excluir tareas vencidas O completadas (van al historial)
+        const esVencida    = t => t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
+        const esCompletada = t => t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
+        const vaAlHistorial = t => esVencida(t) || esCompletada(t);
+
+        const tareasFiltradas = esAdmin
+            ? todasTareas.filter(t => !vaAlHistorial(t) && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })())
+            : todasTareas.filter(t => !vaAlHistorial(t) && t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase() && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })());
+        const tituloEl = document.getElementById('mis-tareas-titulo');
+        if (tituloEl) tituloEl.textContent = esAdmin ? 'Todas las Tareas del Mes' : 'Mis Tareas del Mes';
+        if (misTareasCount) misTareasCount.textContent = tareasFiltradas.length > 0 ? `${tareasFiltradas.length} tarea(s)` : '';
+        misTareasList.innerHTML = '';
+        if (tareasFiltradas.length === 0) {
+            misTareasList.innerHTML = `<li><span class="activity-note-line"><span class="note-detail">\ud83d\udccb ${esAdmin ? 'Sin tareas este mes.' : 'No tienes tareas asignadas este mes.'}</span></span></li>`;
+            return;
+        }
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+
+        // Admin: agrupar por área. Siervo/Staff: agrupar por semana
+        const grupos = {};
+        tareasFiltradas.forEach(t => {
+            let key;
+            if (esAdmin) {
+                const u = usuarios.find(u => u.nombre === t.asignado);
+                key = u?.area || 'Sin área';
+            } else {
+                key = `Semana ${Math.ceil(new Date(t.fecha).getDate() / 7)}`;
+            }
+            if (!grupos[key]) grupos[key] = [];
+            grupos[key].push(t);
+        });
+
+        Object.entries(grupos).sort().forEach(([grupo, tareas]) => {
+            const sep = document.createElement('div');
+            sep.className = 'week-separator';
+            sep.innerHTML = `<span>${esAdmin ? '\ud83c\udfaf ' : ''}${grupo}</span><span class="week-toggle">\u25be</span>`;
+            sep.addEventListener('click', () => sep.nextElementSibling?.classList.toggle('collapsed'));
+            misTareasList.appendChild(sep);
+            const groupUl = document.createElement('ul');
+            groupUl.style.cssText = 'list-style:none;padding:0;margin:0;';
+            misTareasList.appendChild(groupUl);
+            tareas.forEach(t => {
+                const hora = new Date(t.fecha).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+
+                // Tiempo transcurrido desde creación
+                const ahora2 = new Date();
+                const diffMs  = ahora2 - new Date(t.fecha);
+                const diffDias = Math.floor(diffMs / 86400000);
+                const diffHrs  = Math.floor(diffMs / 3600000);
+                const tiempoCreado = diffDias > 0 ? `Hace ${diffDias}d` : diffHrs > 0 ? `Hace ${diffHrs}h` : 'Hace un momento';
+
+                // Indicador de urgencia
+                let urgenciaHtml = '';
+                if (t.vencimiento && t.estadoTarea !== 'completada') {
+                    const hoy = new Date(); hoy.setHours(0,0,0,0);
+                    const venc = new Date(t.vencimiento + 'T00:00:00');
+                    const diffDias = Math.ceil((venc - hoy) / 86400000);
+                    if (diffDias < 0)       urgenciaHtml = `<span class="tarea-urgencia vencida">\u26d4 Vencida</span>`;
+                    else if (diffDias === 0) urgenciaHtml = `<span class="tarea-urgencia hoy">\u26a0\ufe0f Vence hoy</span>`;
+                    else if (diffDias <= 2)  urgenciaHtml = `<span class="tarea-urgencia pronto">\u23f0 ${diffDias}d</span>`;
+                    else                     urgenciaHtml = `<span class="tarea-urgencia ok">\ud83d\udcc5 ${venc.toLocaleDateString('es', {day:'numeric',month:'short'})}</span>`;
+                }
+                const prioridadCls  = t.prioridad === 'Alta' ? 'prio-alta' : t.prioridad === 'Baja' ? 'prio-baja' : 'prio-media';
+                const prioridadHtml = t.prioridad ? `<span class="tarea-prioridad ${prioridadCls}">${t.prioridad}</span>` : '';
+                const estadoTarea   = t.estadoTarea || 'pendiente';
+                const estadoCls     = estadoTarea === 'completada' ? 'tarea-completada' : estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
+                const estadoLabel   = estadoTarea === 'completada' ? '\u2713 Completada' : estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
+
+                const li = document.createElement('li');
+                li.className = estadoTarea === 'completada' ? 'tarea-item-completada' : '';
+
+                // Para no-Admin: card expandida con todas las opciones
+                if (!esAdmin) {
+                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
+                    const respTarea = aceptaciones[t.fecha];
+                    let aceptacionHtml = '';
+                    if (respTarea === 'acepta') {
+                        aceptacionHtml = `<span class="asistencia-btn asistencia-confirmado">\u2713 Aceptada</span>`;
+                    } else if (respTarea === 'no-puedo') {
+                        aceptacionHtml = `<span class="asistencia-btn asistencia-rechazado">\u2715 No puedo</span>`;
+                    } else {
+                        aceptacionHtml = `
+                            <button class="asistencia-btn asistencia-confirmar btn-aceptar-tarea" data-fecha="${t.fecha}" data-resp="acepta">\u2713 Aceptar</button>
+                            <button class="asistencia-btn asistencia-no-puedo btn-aceptar-tarea" data-fecha="${t.fecha}" data-resp="no-puedo">\u2715 No puedo</button>`;
+                    }
+                    li.innerHTML = `
+                    <div class="tarea-card${estadoTarea === 'completada' ? ' tarea-card-completada' : ''}">
+                        <div class="tarea-card-header">
+                            <span class="tarea-card-titulo">\ud83d\udee0\ufe0f ${t.titulo}</span>
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                ${prioridadHtml}
+                                ${urgenciaHtml}
+                            </div>
+                        </div>
+                        ${t.desc ? `<div class="tarea-card-desc">${t.desc}</div>` : ''}
+                        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px;">\ud83d\udd52 ${tiempoCreado} &nbsp;\u00b7&nbsp; Creada el ${new Date(t.fecha).toLocaleDateString('es',{day:'numeric',month:'short'})}</div>
+                        <div class="tarea-card-footer">
+                            <span class="tarea-estado ${estadoCls} btn-cambiar-estado-tarea" data-fecha="${t.fecha}" style="cursor:pointer;" title="Click para cambiar estado">${estadoLabel}</span>
+                            <button class="btn-secondary btn-comentarios-tarea" data-fecha="${t.fecha}" style="padding:4px 10px;font-size:0.75rem;">\ud83d\udcac Comentarios</button>
+                        </div>
+                        <div class="tarea-aceptacion-row">${aceptacionHtml}</div>
+                    </div>`;
+                } else {
+                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
+                    const respTarea = aceptaciones[t.fecha];
+                    const aceptBadge = respTarea === 'acepta'
+                        ? `<span style="color:#2ed573;font-size:0.7rem;margin-left:4px;">\u2713</span>`
+                        : respTarea === 'no-puedo'
+                        ? `<span style="color:#ff4757;font-size:0.7rem;margin-left:4px;">\u2715</span>`
+                        : `<span style="color:var(--text-muted);font-size:0.7rem;margin-left:4px;">\u25cb</span>`;
+                    li.innerHTML = `<span class="activity-note-line">
+                        <span class="note-detail">\ud83d\udee0\ufe0f ${t.titulo}</span>
+                        <span class="note-user">${t.asignado}${aceptBadge}</span>
+                        <span class="note-time">${tiempoCreado}</span>
+                        <button class="btn-secondary btn-comentarios-tarea" data-fecha="${t.fecha}" style="margin-left:4px;padding:2px 6px;font-size:0.65rem;">\ud83d\udcac</button>
+                        <button class="btn-secondary btn-edit-tarea" data-fecha="${t.fecha}" style="margin-left:2px;padding:2px 6px;font-size:0.65rem;">\u270f\ufe0f</button>
+                        <button class="btn-danger btn-del-tarea" data-fecha="${t.fecha}" style="margin-left:2px;padding:2px 6px;font-size:0.65rem;">\u2715</button>
+                    </span>
+                    <div class="tarea-meta-row">
+                        ${prioridadHtml}
+                        ${urgenciaHtml}
+                        <span class="tarea-estado ${estadoCls} btn-cambiar-estado-tarea" data-fecha="${t.fecha}">${estadoLabel}</span>
+                    </div>
+                    ${t.desc ? `<div class="tarea-desc">${t.desc}</div>` : ''}`;
+                }
+                groupUl.appendChild(li);
+            });
+        });
+        // Aceptación de tareas (no-Admin)
+        groupUl.querySelectorAll('.btn-aceptar-tarea').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
+                aceptaciones[btn.dataset.fecha] = btn.dataset.resp;
+                localStorage.setItem('aceptaciones_tareas', JSON.stringify(aceptaciones));
+                const msg = btn.dataset.resp === 'acepta' ? '\u2713 Tarea aceptada' : '\u2715 Respuesta registrada';
+                showNotification(msg);
+                cargarMisTareas();
+            });
+        });
+
+        // Comentarios en tareas
+        misTareasList.querySelectorAll('.btn-comentarios-tarea').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                const t = tareas.find(x => x.fecha === btn.dataset.fecha);
+                if (t) abrirComentarios(`tarea_${t.fecha}`, t.titulo);
+            });
+        });
+
+        // Cambiar estado de tarea (todos los roles)
+        misTareasList.querySelectorAll('.btn-cambiar-estado-tarea').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
+                if (idx === -1) return;
+                const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
+                tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
+                localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+                cargarMisTareas(); renderDashboardProyectosYTareas();
+            });
+        });
+
+        if (esAdmin) {
+            misTareasList.querySelectorAll('.btn-del-tarea').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    confirmar('Eliminar tarea', '\u00bfEliminar esta tarea?', () => {
+                        let tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                        tareas = tareas.filter(t => t.fecha !== btn.dataset.fecha);
+                        localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+                        cargarMisTareas(); actualizarEstadisticas();
+                        showNotification('Tarea eliminada.');
+                    });
+                });
+            });
+            misTareasList.querySelectorAll('.btn-edit-tarea').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                    const t = tareas.find(x => x.fecha === btn.dataset.fecha);
+                    if (!t) return;
+                    document.getElementById('et-titulo').value      = t.titulo;
+                    document.getElementById('et-desc').value        = t.desc || '';
+                    document.getElementById('et-prioridad').value   = t.prioridad || 'Media';
+                    document.getElementById('et-vencimiento').value = t.vencimiento || '';
+                    const sel = document.getElementById('et-asignado');
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    sel.innerHTML = usuarios.map(u => `<option value="${u.nombre}" ${u.nombre === t.asignado ? 'selected' : ''}>${u.nombre} (${u.area})</option>`).join('');
+                    document.getElementById('edit-tarea-modal')._tareaFecha = t.fecha;
+                    document.getElementById('edit-tarea-modal').classList.remove('hidden');
+                });
+            });
+        }
+    }
+    cargarMisTareas();
+
+    // ─── HISTORIAL DE TAREAS VENCIDAS ────────────────────────
+    function renderHistorialTareas() {
+        const cont  = document.getElementById('tareas-historial');
+        const count = document.getElementById('historial-tareas-count');
+        if (!cont) return;
+        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+        const vencidas = todasTareas.filter(t => {
+            const esDelUsuario = esAdmin || (t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
+            if (!esDelUsuario) return false;
+            const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
+            const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
+            return esVencida || esCompletada;
+        });
+
+        if (count) count.textContent = vencidas.length > 0 ? `${vencidas.length} tarea(s)` : '';
+        cont.innerHTML = '';
+
+        if (vencidas.length === 0) {
+            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas en historial.</p>';
+            return;
+        }
+
+        vencidas.sort((a, b) => new Date(b.vencimiento) - new Date(a.vencimiento)).forEach(t => {
+            const vencFmt   = new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' });
+            const estadoTarea = t.estadoTarea || 'pendiente';
+            const item = document.createElement('div');
+            item.className = 'historial-item';
+            item.style.flexWrap = 'wrap';
+            item.innerHTML = `
+                <div class="historial-info">
+                    <span class="historial-nombre">\ud83d\udee0\ufe0f ${t.titulo}</span>
+                    <span class="historial-fecha">${t.asignado} \u00b7 Venci\u00f3: ${vencFmt}</span>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;">
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="completada" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'completada' ? 'border-color:#2ed573;color:#2ed573;background:rgba(46,213,115,0.1);' : ''}">\u2713 Terminado</button>
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="pendiente" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'pendiente' ? 'border-color:#ffa500;color:#ffa500;background:rgba(255,165,0,0.1);' : ''}">\u25cb Pendiente</button>
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="no-efectuado" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'no-efectuado' ? 'border-color:#ff4757;color:#ff4757;background:rgba(255,71,87,0.1);' : ''}">\u2715 No efectuado</button>
+                </div>`;
+            cont.appendChild(item);
+        });
+
+        cont.querySelectorAll('.btn-estado-historial').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
+                if (idx !== -1) {
+                    tareas[idx].estadoTarea = btn.dataset.estado;
+                    localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+                    renderHistorialTareas();
+                    cargarMisTareas();
+                    showNotification('Estado actualizado.');
+                }
+            });
+        });
+    }
+    renderHistorialTareas();
+
+    // ─── EDITAR TAREA ─────────────────────────────────────────
+    document.getElementById('edit-tarea-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fecha = document.getElementById('edit-tarea-modal')._tareaFecha;
+        const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const idx = tareas.findIndex(t => t.fecha === fecha);
+        if (idx === -1) return;
+        tareas[idx].titulo      = document.getElementById('et-titulo').value.trim();
+        tareas[idx].desc        = document.getElementById('et-desc').value.trim();
+        tareas[idx].asignado    = document.getElementById('et-asignado').value;
+        tareas[idx].prioridad   = document.getElementById('et-prioridad').value;
+        tareas[idx].vencimiento = document.getElementById('et-vencimiento').value;
+        localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+        document.getElementById('edit-tarea-modal').classList.add('hidden');
+        cargarMisTareas();
+        renderDashboardProyectosYTareas();
+        showNotification('Tarea actualizada.');
+    });
+
+    if (!esAdmin) {
+        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const misTareas   = todasTareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
+        const vistas      = parseInt(localStorage.getItem(`tareas_vistas_${sesion.correo}`) || '0');
+        const nuevas      = Math.max(0, misTareas.length - vistas);
+        if (nuevas > 0) {
+            showNotification(`Tienes ${nuevas} tarea(s) nueva(s) asignada(s).`, 'success');
+            localStorage.setItem(`tareas_vistas_${sesion.correo}`, misTareas.length);
+        }
+    }
+
+    const formStaff = document.getElementById('staff-form');
+    if (formStaff && esAdmin) {
+        formStaff.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const titulo      = document.getElementById('staff-titulo').value.trim();
+            const asignado    = document.getElementById('staff-asignado').value;
+            const desc        = document.getElementById('staff-desc').value.trim();
+            const prioridad   = document.getElementById('staff-prioridad').value;
+            const vencimiento = document.getElementById('staff-vencimiento').value;
+            const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+            tareas.push({ titulo, asignado, desc, prioridad, vencimiento, fecha: new Date().toISOString() });
+            localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+            cargarMisTareas(); actualizarEstadisticas();
+            showNotification(`Tarea "${titulo}" asignada a ${asignado}.`);
+            formStaff.reset();
+            renderDashboardProyectosYTareas();
+            renderHistorialTareas();
+            renderDashTareasStaff();
+            irA('dashboard-view');
+        });
+    }
+
+    // ─── AGENDA MENSUAL ──────────────────────────────────────
+    function calcularOffsetInicial() {
+        const hoy = new Date();
+        const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+        while (ultimoDia.getDay() !== 0) ultimoDia.setDate(ultimoDia.getDate() - 1);
+        const finUltimoDomingo = new Date(ultimoDia);
+        finUltimoDomingo.setHours(23, 59, 59, 999);
+        return hoy > finUltimoDomingo ? 1 : 0;
+    }
+
+    let agendaMonthOffset = calcularOffsetInicial();
+
+    function getMonthDays(offset = 0) {
+        const today = new Date();
+        const month = today.getMonth() + offset;
+        const first = new Date(today.getFullYear(), month, 1);
+        const last  = new Date(today.getFullYear(), month + 1, 0);
+        const days  = [];
+        for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+        return days;
+    }
+
+    function generateAgendaMonth() {
+        const container = document.getElementById('agenda-dynamic-container');
+        const titleEl   = document.getElementById('agenda-week-title');
+        const rangeEl   = document.getElementById('agenda-week-range');
+        if (!container) return;
+        const allDays    = getMonthDays(agendaMonthOffset);
+        const sundays    = allDays.filter(d => d.getDay() === 0);
+        const wednesdays = allDays.filter(d => d.getDay() === 3);
+        const monthName  = allDays[0].toLocaleDateString('es', { month: 'long', year: 'numeric' });
+        if (titleEl) titleEl.textContent = `Agenda \u2014 ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
+        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participar\u00e1s este mes';
+        const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        const userName = sesion.nombre;
+        const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
+
+        const buildTable = (days, times, prefix, dayLabel, colorClass) => {
+            if (days.length === 0) return '';
+            let t = `<div class="table-container" style="margin-bottom:24px;overflow-x:auto;"><table class="users-table agenda-reserve-table agenda-table-${colorClass}">`;
+            t += `<thead><tr><th style="width:110px;">Horario</th>`;
+            days.forEach(d => { t += `<th class="text-center agenda-col-${colorClass}">${fmt(d)}<br><small>${dayLabel}</small></th>`; });
+            t += `</tr></thead><tbody>`;
+            times.forEach((time, ti) => {
+                t += `<tr><td><strong>${time}</strong></td>`;
+                days.forEach((d, di) => {
+                    const value = `${dayLabel} ${d.getDate()} a las ${time}`;
+                    const id = `${prefix}-${ti}-${di}`;
+                    const isReserved = misReservas.has(value);
+                    t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                        <input type="checkbox" id="${id}" name="agenda-servicios[]" value="${value}" class="time-checkbox" ${isReserved ? 'checked disabled' : ''}>
+                        <label for="${id}" class="time-label compact-label">${isReserved ? '\u2713' : 'Servicio'}</label></td>`;
+                });
+                t += `</tr>`;
+            });
+            t += `</tbody></table></div>`;
+            return t;
+        };
+
+        let html = '';
+        if (sundays.length === 0 && wednesdays.length === 0) {
+            html = '<p style="color:var(--text-muted);padding:20px 0;">No hay servicios programados este mes.</p>';
+        } else {
+            if (sundays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-domingo">\u2600\ufe0f Servicios de Domingo</h3>';
+                html += buildTable(sundays, ['7:30 AM','11:00 AM','1:00 PM','7:00 PM'], 'sun', 'Domingo', 'domingo');
+            }
+            if (wednesdays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-miercoles">\ud83c\udf19 Servicios de Mi\u00e9rcoles</h3>';
+                html += buildTable(wednesdays, ['7:00 PM'], 'wed', 'Mi\u00e9rcoles', 'miercoles');
+            }
+        }
+        container.innerHTML = html;
+        const btnVerReservas = document.getElementById('btn-ver-reservas');
+        if (btnVerReservas) btnVerReservas.style.display = esAdmin ? 'inline-block' : 'none';
+    }
+    generateAgendaMonth();
+
+    document.getElementById('btn-ver-reservas')?.addEventListener('click', () => {
+        const allDays   = getMonthDays(agendaMonthOffset);
+        const monthNum  = allDays[0].getMonth();
+        const yearNum   = allDays[0].getFullYear();
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const mesServicios = servicios.filter(s => { const f = new Date(s.fecha); return f.getMonth() === monthNum && f.getFullYear() === yearNum; });
+        const modal     = document.getElementById('reservas-modal');
+        const subtitle  = document.getElementById('reservas-modal-subtitle');
+        const content   = document.getElementById('reservas-modal-content');
+        const monthName = allDays[0].toLocaleDateString('es', { month: 'long', year: 'numeric' });
+        subtitle.textContent = `${monthName} \u2014 ${mesServicios.length} reserva(s)`;
+        content.innerHTML = mesServicios.length === 0
+            ? '<p style="color:var(--text-muted);">Nadie ha reservado servicios este mes a\u00fan.</p>'
+            : `<div class="reservas-grid">${mesServicios.map(s => `<div class="reserva-item"><span class="reserva-servicio">\u26ea ${s.servicio}</span><span class="reserva-usuario">${s.usuario}</span></div>`).join('')}</div>`;
+        modal.classList.remove('hidden');
+    });
+
+    const formAgenda = document.getElementById('agenda-form');
+    formAgenda?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const selected = document.querySelectorAll('input[name="agenda-servicios[]"]:checked:not(:disabled)');
+        if (selected.length === 0) { showNotification('Selecciona al menos un horario.', 'error'); return; }
+        const userName = sesion.nombre;
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        selected.forEach(opt => {
+            servicios.push({ servicio: opt.value, usuario: userName, area: sesion.area || '', fecha: new Date().toISOString() });
+        });
+        localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+        actualizarEstadisticas();
+        showNotification(`${selected.length} horario(s) reservado(s).`);
+        generateAgendaMonth();
+        renderReservasSemana();
+        irA('dashboard-view');
+    });
+
+    // ─── LIMPIEZA DE SERVICIOS EXPIRADOS ─────────────────────
+    const EXPIRY_OFFSET_MS = 45 * 60 * 1000;
+
+    function servicioToDate(servicioStr) {
+        const horaMap = { '1er Servicio': '7:30 AM', '2do Servicio': '11:00 AM', '3er Servicio': '1:00 PM', '4to Servicio': '7:00 PM', '7:00 PM': '7:00 PM' };
+        const matchViejo = servicioStr.match(/^(Domingo|Mi\u00e9rcoles)\s+(\d+)\s+a las\s+(.+)$/);
+        const matchNuevo = servicioStr.match(/^(Domingo|Mi\u00e9rcoles)\s+(\d+)\s+\u00b7\s+(.+)$/);
+        const m = matchViejo || matchNuevo;
+        if (!m) return null;
+        let [, , numDia, horaStr] = m;
+        horaStr = horaMap[horaStr] || horaStr;
+        const horaMatch = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (!horaMatch) return null;
+        let h = parseInt(horaMatch[1]);
+        const min = parseInt(horaMatch[2]);
+        const period = horaMatch[3].toUpperCase();
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        const now = new Date();
+        const d = new Date(now.getFullYear(), now.getMonth(), parseInt(numDia), h, min, 0, 0);
+        if (d < now) {
+            const prevMonth = now.getMonth() - 1;
+            const prevYear  = prevMonth < 0 ? now.getFullYear() - 1 : now.getFullYear();
+            return new Date(prevYear, (prevMonth + 12) % 12, parseInt(numDia), h, min, 0, 0);
+        }
+        return d;
+    }
+
+    function limpiarServiciosExpirados() {
+        const ahora = new Date();
+        let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const antes = servicios.length;
+        servicios = servicios.filter(s => {
+            const f = servicioToDate(s.servicio);
+            return !f || (ahora - f) < EXPIRY_OFFSET_MS;
+        });
+        if (servicios.length !== antes) {
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            renderReservasSemana(); actualizarEstadisticas();
+        }
+    }
+    limpiarServiciosExpirados();
+    setInterval(limpiarServiciosExpirados, 60000);
+
+    // ─── SERVICIOS ESTA SEMANA ────────────────────────────────
+    function servicioSortKey(servicioStr) {
+        const diaMatch  = servicioStr.match(/(\d+)/);
+        const dia = diaMatch ? parseInt(diaMatch[1]) : 0;
+        const horaMatch = servicioStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        let horas = 0;
+        if (horaMatch) {
+            horas = parseInt(horaMatch[1]);
+            const mins = parseInt(horaMatch[2]);
+            const period = horaMatch[3].toUpperCase();
+            if (period === 'PM' && horas !== 12) horas += 12;
+            if (period === 'AM' && horas === 12) horas = 0;
+            horas = horas * 60 + mins;
+        }
+        return dia * 10000 + horas;
+    }
+
+    function renderReservasSemana() {
+        const panel = document.getElementById('servicios-semana-list');
+        if (!panel) return;
+        const userName  = sesion.nombre;
+        const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const visibles  = servicios.filter(s => esAdmin || s.usuario === userName);
+        panel.innerHTML = '';
+        if (visibles.length === 0) {
+            panel.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados a\u00fan.</span></li>';
+            return;
+        }
+        const domingos  = visibles.filter(s => s.servicio.startsWith('Domingo'));
+        const miercoles = visibles.filter(s => s.servicio.startsWith('Mi\u00e9rcoles'));
+        const sortServicios = arr => [...arr].sort((a, b) => servicioSortKey(a.servicio) - servicioSortKey(b.servicio));
+
+        const renderGroup = (items, label, colorClass) => {
+            if (items.length === 0) return;
+            const sep = document.createElement('div');
+            sep.className = `semana-group-sep semana-sep-${colorClass}`;
+            sep.textContent = label;
+            panel.appendChild(sep);
+            sortServicios(items).forEach(s => {
+                let area = s.area || '';
+                if (!area) { const u = usuarios.find(u => u.nombre === s.usuario); area = u?.area || ''; }
+                const servicioNumMap = { '7:30 AM': '1er Servicio', '11:00 AM': '2do Servicio', '1:00 PM': '3er Servicio', '7:00 PM': colorClass === 'domingo' ? '4to Servicio' : '7:00 PM' };
+                const partes = s.servicio.split(' a las ');
+                const diaStr = partes[0] || s.servicio;
+                const horaStr = partes[1] || '';
+                const numServicio = servicioNumMap[horaStr] || horaStr;
+                const li = document.createElement('li');
+                li.className = `semana-item semana-item-${colorClass}`;
+                li.innerHTML = `<span class="semana-nombre">\ud83d\udc64 ${s.usuario}</span><span class="semana-area">${area}</span><span class="semana-servicio">\ud83d\udcc5 ${diaStr} \u00b7 ${numServicio}</span>`;
+                panel.appendChild(li);
+            });
+        };
+        renderGroup(domingos,  '\u2600\ufe0f Domingos',  'domingo');
+        renderGroup(miercoles, '\ud83c\udf19 Mi\u00e9rcoles', 'miercoles');
+    }
+    renderReservasSemana();
+
+    // ─── PROGRAMACIÓN EN DASHBOARD (Staff/Siervo) ────────────
+    function renderDashProgramacion() {
+        const panel = document.getElementById('dash-programacion-panel');
+        const cont  = document.getElementById('dash-programacion-content');
+        if (!panel || !cont) return;
+        if (esAdmin) { panel.style.display = 'none'; return; }
+
+        const pdfs         = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+        const servicios    = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const misServicios = servicios.filter(s => s.usuario === sesion.nombre);
+
+        if (pdfs.length === 0) { panel.style.display = 'none'; return; }
+
+        const misKeys = new Set();
+        misServicios.forEach(s => {
+            const partes = s.servicio.split(' a las ');
+            const dia = partes[0] || '', hora = partes[1] || '';
+            if (dia.startsWith('Domingo')) {
+                if (hora === '7:30 AM')  misKeys.add('dom-1');
+                if (hora === '11:00 AM') misKeys.add('dom-2');
+                if (hora === '1:00 PM')  misKeys.add('dom-3');
+                if (hora === '7:00 PM')  misKeys.add('dom-4');
+            }
+            if (dia.startsWith('Mi\u00e9rcoles')) misKeys.add('mie-1');
+        });
+
+        const SERVICIOS_LABEL = {
+            'dom-1': '\u2600\ufe0f Domingo \u00b7 1er Servicio', 'dom-2': '\u2600\ufe0f Domingo \u00b7 2do Servicio',
+            'dom-3': '\u2600\ufe0f Domingo \u00b7 3er Servicio', 'dom-4': '\u2600\ufe0f Domingo \u00b7 4to Servicio',
+            'mie-1': '\ud83c\udf19 Mi\u00e9rcoles \u00b7 Servicio'
+        };
+
+        // Mostrar PDFs de mis servicios + generales
+        const relevantes = pdfs.filter(p => !p.servicio || misKeys.has(p.servicio));
+        if (relevantes.length === 0) { panel.style.display = 'none'; return; }
+
+        panel.style.display = '';
+        cont.innerHTML = '';
+
+        const grupos = {};
+        relevantes.forEach(p => {
+            const key = p.servicio || 'general';
+            if (!grupos[key]) grupos[key] = [];
+            grupos[key].push(p);
+        });
+
+        Object.entries(grupos).forEach(([key, items]) => {
+            if (key !== 'general') {
+                const sep = document.createElement('div');
+                sep.className = 'recurso-servicio-sep';
+                sep.textContent = SERVICIOS_LABEL[key] || key;
+                cont.appendChild(sep);
+            }
+            items.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'recurso-card';
+                card.innerHTML = `
+                    <a href="${p.url}" target="_blank" rel="noopener" class="recurso-link" download="${p.nombreArchivo || p.titulo}">
+                        <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
+                        <div class="recurso-info">
+                            <span class="recurso-titulo">${p.titulo}</span>
+                            <span class="recurso-url">${p.nombreArchivo || ''}</span>
+                        </div>
+                    </a>`;
+                cont.appendChild(card);
+            });
+        });
+    }
+    renderDashProgramacion();
+
+    // ─── DASHBOARD: PROYECTOS Y TAREAS POR ROL ───────────────
+    function renderDashboardProyectosYTareas() {
+        const listaProy  = document.getElementById('dash-proyectos-list');
+        const listaTarea = document.getElementById('dash-tareas-list');
+        const titProy    = document.getElementById('dash-proyectos-titulo');
+        const titTarea   = document.getElementById('dash-tareas-titulo');
+        if (!listaProy || !listaTarea) return;
+        const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const tareas      = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const areaUsuario = (sesion.area || '').toLowerCase();
+
+        let proyFiltrados;
+        if (esAdmin) {
+            proyFiltrados = proyectos;
+            if (titProy) titProy.textContent = 'Todos los Proyectos';
+        } else {
+            proyFiltrados = proyectos.filter(p => {
+                if (p.areasData) return p.areasData.some(a => a.area.toLowerCase() === areaUsuario);
+                if (p.areas)     return p.areas.toLowerCase().includes(areaUsuario);
+                return false;
+            });
+            if (titProy) titProy.textContent = 'Mis Proyectos';
+        }
+
+        let tareasFiltradas;
+        if (esAdmin) {
+            tareasFiltradas = tareas;
+            if (titTarea) titTarea.textContent = 'Todas las Tareas';
+        } else {
+            tareasFiltradas = tareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
+            if (titTarea) titTarea.textContent = 'Mis Tareas';
+        }
+
+        listaProy.innerHTML = '';
+        if (proyFiltrados.length === 0) {
+            if (!esAdmin) {
+                // Mostrar próximo servicio reservado
+                const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+                const userName  = sesion.nombre;
+                const misServicios = servicios.filter(s => s.usuario === userName);
+                const proximoServicio = misServicios.length > 0
+                    ? `<div class="proximo-servicio">\ud83d\udcc5 Pr\u00f3ximo servicio: <strong>${misServicios[0].servicio}</strong></div>`
+                    : '';
+                listaProy.innerHTML = `<li><div class="dash-bienvenida">
+                    <div class="dash-bienvenida-icon">\ud83d\udc4b</div>
+                    <p>Hola <strong>${sesion.nombre.split(' ')[0]}</strong>, a\u00fan no tienes proyectos asignados.<br>Cuando el Admin te asigne a un evento aparecer\u00e1 aqu\u00ed.</p>
+                    ${proximoServicio}
+                </div></li>`;
+            } else {
+                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos creados a\u00fan.</span></li>';
+            }
+        } else {
+            [...proyFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach(p => {
+                const estado    = calcularEstadoProyecto(p);
+                const regresiva = cuentaRegresiva(p);
+                const fechaFmt  = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' }) : '\u2014';
+                const cls = estado === 'Planificado' ? 'estado-planificado' : estado === 'En curso' ? 'estado-en-curso' : 'estado-completado';
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="activity-note-line">
+                    <span class="note-detail">\ud83d\udcc5 ${p.nombre}</span>
+                    <span class="note-user">${fechaFmt}${p.hora ? ' ' + p.hora : ''}</span>
+                    <span class="note-time"><span class="estado-badge ${cls}" style="padding:1px 7px;font-size:0.7rem;">${estado}</span></span>
+                </span>${regresiva ? `<div style="font-size:0.75rem;color:var(--secondary-color);padding:2px 4px;">${regresiva}</div>` : ''}
+                ${!esAdmin && estado !== 'Completado' ? (() => {
+                    const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                    const key = `${p.fecha_registro}_${sesion.correo}`;
+                    const resp = asistencias[key];
+                    if (resp === 'confirma')  return `<div style="margin-top:4px;"><span class="asistencia-btn asistencia-confirmado">\u2713 Asistencia confirmada</span></div>`;
+                    if (resp === 'no-puedo')  return `<div style="margin-top:4px;"><span class="asistencia-btn asistencia-rechazado">\u2715 No puedo ir</span></div>`;
+                    return `<div style="margin-top:4px;display:flex;gap:6px;">
+                        <button class="asistencia-btn asistencia-confirmar btn-asistencia" data-key="${key}" data-resp="confirma">\u2713 Confirmar asistencia</button>
+                        <button class="asistencia-btn asistencia-no-puedo btn-asistencia" data-key="${key}" data-resp="no-puedo">\u2715 No puedo ir</button>
+                    </div>`;
+                })() : ''}`;
+                listaProy.appendChild(li);
+            });
+        }
+
+        listaTarea.innerHTML = '';
+        if (tareasFiltradas.length === 0) {
+            listaTarea.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas asignadas.</span></li>';
+        } else {
+            [...tareasFiltradas].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(t => {
+                const fechaFmt = new Date(t.fecha).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+                const estadoTarea = t.estadoTarea || 'pendiente';
+                const estadoCls   = estadoTarea === 'completada' ? 'tarea-completada' : estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
+                const estadoLabel = estadoTarea === 'completada' ? '\u2713 Completada' : estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="activity-note-line">
+                    <span class="note-detail">\ud83d\udee0\ufe0f ${t.titulo}</span>
+                    <span class="note-user">${esAdmin ? t.asignado : fechaFmt}</span>
+                    <span class="note-time">${esAdmin ? fechaFmt : ''}</span>
+                </span>
+                <span class="tarea-estado ${estadoCls} btn-cambiar-estado-dash" data-fecha="${t.fecha}">${estadoLabel}</span>
+                ${t.desc ? `<div class="tarea-desc">${t.desc}</div>` : ''}`;
+                listaTarea.appendChild(li);
+            });
+            listaTarea.querySelectorAll('.btn-cambiar-estado-dash').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+                    const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
+                    if (idx === -1) return;
+                    const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
+                    tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
+                    localStorage.setItem('tareas_staff', JSON.stringify(tareas));
+                    renderDashboardProyectosYTareas(); cargarMisTareas();
+                });
+            });
+        }
+
+        // Handler asistencia proyectos
+        listaProy.querySelectorAll('.btn-asistencia').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                asistencias[btn.dataset.key] = btn.dataset.resp;
+                localStorage.setItem('asistencias_proyectos', JSON.stringify(asistencias));
+                const msg = btn.dataset.resp === 'confirma' ? '\u2713 Asistencia confirmada' : '\u2715 No puedo ir registrado';
+                showNotification(msg);
+                renderDashboardProyectosYTareas();
+            });
+        });
+    }
+    renderDashboardProyectosYTareas();
+
+    // Ocultar paneles de proyectos y tareas para Siervos
+    if (sesion.rol === 'Siervo') {
+        document.getElementById('dash-proyectos-panel')?.style && (document.getElementById('dash-proyectos-panel').style.display = 'none');
+        document.getElementById('dash-tareas-panel')?.style && (document.getElementById('dash-tareas-panel').style.display = 'none');
+    }
+
+    // Panel Tareas Staff solo para Admin
+    if (!esAdmin) {
+        document.getElementById('dash-tareas-staff-panel')?.style && (document.getElementById('dash-tareas-staff-panel').style.display = 'none');
+    }
+
+    function renderDashTareasStaff() {
+        const cont  = document.getElementById('dash-tareas-staff-list');
+        const count = document.getElementById('dash-tareas-staff-count');
+        if (!cont || !esAdmin) return;
+        const tareas   = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const hoy = new Date(); hoy.setHours(0,0,0,0);
+        const activas = tareas.filter(t => {
+            const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
+            const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
+            return !esVencida && !esCompletada;
+        });
+        if (count) count.textContent = activas.length > 0 ? `${activas.length} activa(s)` : '';
+        cont.innerHTML = '';
+        if (activas.length === 0) {
+            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas activas.</p>';
+            return;
+        }
+        // Agrupar por área
+        const grupos = {};
+        activas.forEach(t => {
+            const u   = usuarios.find(u => u.nombre === t.asignado);
+            const key = u?.area || 'Sin área';
+            if (!grupos[key]) grupos[key] = [];
+            grupos[key].push(t);
+        });
+        Object.entries(grupos).sort().forEach(([area, tareas]) => {
+            const sep = document.createElement('div');
+            sep.className = 'recurso-servicio-sep';
+            sep.textContent = `\ud83c\udfaf ${area}`;
+            cont.appendChild(sep);
+            tareas.forEach(t => {
+                const estadoTarea = t.estadoTarea || 'pendiente';
+                const estadoCls   = estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
+                const estadoLabel = estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
+                const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
+                const resp = aceptaciones[t.fecha];
+                const respBadge = resp === 'acepta'
+                    ? `<span style="color:#2ed573;font-size:0.72rem;">\u2713 Aceptó</span>`
+                    : resp === 'no-puedo'
+                    ? `<span style="color:#ff4757;font-size:0.72rem;">\u2715 No puede</span>`
+                    : `<span style="color:var(--text-muted);font-size:0.72rem;">\u25cb Sin resp.</span>`;
+                const vencFmt = t.vencimiento ? new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', {day:'numeric',month:'short'}) : '\u2014';
+                const diffMs  = new Date() - new Date(t.fecha);
+                const diffDias = Math.floor(diffMs / 86400000);
+                const tiempoCreado = diffDias > 0 ? `Hace ${diffDias}d` : 'Hoy';
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;font-size:0.82rem;';
+                row.innerHTML = `
+                    <span style="flex:1;font-weight:500;">\ud83d\udee0\ufe0f ${t.titulo}</span>
+                    <span style="color:var(--text-muted);font-size:0.75rem;">${t.asignado}</span>
+                    <span class="tarea-estado ${estadoCls}" style="font-size:0.7rem;padding:1px 8px;">${estadoLabel}</span>
+                    ${respBadge}
+                    <span style="color:var(--text-muted);font-size:0.72rem;">\ud83d\udcc5 Vence: ${vencFmt}</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem;">${tiempoCreado}</span>`;
+                cont.appendChild(row);
+            });
+        });
+    }
+    renderDashTareasStaff();
+
+    // ─── COMENTARIOS ─────────────────────────────────────────
+    let comentariosKey = null;
+
+    function abrirComentarios(key, titulo) {
+        comentariosKey = key;
+        document.getElementById('comentarios-modal-titulo').textContent = `\ud83d\udcac ${titulo}`;
+        renderComentarios();
+        document.getElementById('comentarios-modal').classList.remove('hidden');
+        document.getElementById('comentario-input').value = '';
+        document.getElementById('comentario-input').focus();
+    }
+
+    function renderComentarios() {
+        const lista = document.getElementById('comentarios-lista');
+        if (!lista || !comentariosKey) return;
+        const todos = JSON.parse(localStorage.getItem('comentarios') || '{}');
+        const items = todos[comentariosKey] || [];
+        lista.innerHTML = '';
+        if (items.length === 0) {
+            lista.innerHTML = '<li style="color:var(--text-muted);font-size:0.85rem;padding:8px 4px;">Sin comentarios a\u00fan.</li>';
+            return;
+        }
+        items.forEach(c => {
+            const li = document.createElement('li');
+            li.innerHTML = `<div class="comentario-item">
+                <span class="comentario-autor">${c.autor}</span>
+                <span>${c.texto}</span>
+                <span class="comentario-hora">${new Date(c.fecha).toLocaleString('es', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+            </div>`;
+            lista.appendChild(li);
+        });
+        lista.scrollTop = lista.scrollHeight;
+    }
+
+    document.getElementById('btn-enviar-comentario')?.addEventListener('click', () => {
+        const input = document.getElementById('comentario-input');
+        const texto = input.value.trim();
+        if (!texto || !comentariosKey) return;
+        const todos = JSON.parse(localStorage.getItem('comentarios') || '{}');
+        if (!todos[comentariosKey]) todos[comentariosKey] = [];
+        todos[comentariosKey].push({ autor: sesion.nombre, texto, fecha: new Date().toISOString() });
+        localStorage.setItem('comentarios', JSON.stringify(todos));
+        input.value = '';
+        renderComentarios();
+    });
+
+    document.getElementById('comentario-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('btn-enviar-comentario').click();
+    });
+
+    // Delegación para botones de comentarios en proyectos
+    document.getElementById('proyectos-lista')?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-comentarios-proy')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const p = proyectos.find(x => x.fecha_registro === e.target.dataset.key);
+            if (p) abrirComentarios(`proy_${p.fecha_registro}`, p.nombre);
+        }
+    }, true); // capture para no interferir con el listener existente
+
+    // ─── FILTRO PROYECTOS ─────────────────────────────────────
+    document.getElementById('filtro-estado-proy')?.addEventListener('change', () => renderProyectos());
+
+    // ─── CALENDARIO VISUAL DE PROYECTOS ──────────────────────
+    let calendarioVisible = false;
+    function renderCalendario() {
+        const cont = document.getElementById('proyectos-calendario');
+        if (!cont) return;
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const hoy = new Date();
+        const anio = hoy.getFullYear();
+        const mes  = hoy.getMonth();
+        const primerDia = new Date(anio, mes, 1).getDay();
+        const diasMes   = new Date(anio, mes + 1, 0).getDate();
+        const mesNombre = hoy.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+
+        // Mapear proyectos por día
+        const eventosPorDia = {};
+        proyectos.forEach(p => {
+            if (!p.fecha) return;
+            const d = new Date(p.fecha + 'T00:00:00');
+            if (d.getFullYear() === anio && d.getMonth() === mes) {
+                const dia = d.getDate();
+                if (!eventosPorDia[dia]) eventosPorDia[dia] = [];
+                eventosPorDia[dia].push(p);
+            }
+        });
+
+        let html = `<div class="cal-header"><strong>${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)}</strong></div>
+        <div class="cal-grid">
+            <div class="cal-dia-label">Dom</div><div class="cal-dia-label">Lun</div><div class="cal-dia-label">Mar</div>
+            <div class="cal-dia-label">Mié</div><div class="cal-dia-label">Jue</div><div class="cal-dia-label">Vie</div><div class="cal-dia-label">Sáb</div>`;
+        for (let i = 0; i < primerDia; i++) html += '<div class="cal-celda vacia"></div>';
+        for (let d = 1; d <= diasMes; d++) {
+            const esHoy = d === hoy.getDate();
+            const eventos = eventosPorDia[d] || [];
+            const puntosHtml = eventos.map(p => {
+                const estado = calcularEstadoProyecto(p);
+                const color  = estado === 'Completado' ? '#2ed573' : estado === 'En curso' ? '#ffa500' : '#4facfe';
+                return `<span class="cal-punto" style="background:${color};" title="${p.nombre}"></span>`;
+            }).join('');
+            html += `<div class="cal-celda${esHoy ? ' cal-hoy' : ''}${eventos.length ? ' cal-tiene-evento' : ''}">${d}${puntosHtml}</div>`;
+        }
+        html += '</div>';
+        cont.innerHTML = html;
+    }
+
+    document.getElementById('btn-toggle-calendario')?.addEventListener('click', () => {
+        calendarioVisible = !calendarioVisible;
+        const cont = document.getElementById('proyectos-calendario');
+        if (calendarioVisible) { cont.classList.remove('hidden'); renderCalendario(); }
+        else cont.classList.add('hidden');
+    });
+
+    // ─── PERFIL DE USUARIO ────────────────────────────────────
+    function cargarPerfil() {
+        const inp = document.getElementById('perfil-nombre');
+        const tel = document.getElementById('perfil-telefono');
+        if (inp) inp.value = sesion.nombre;
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo === sesion.correo);
+        if (tel && u) tel.value = u.telefono || '';
+        renderHistorialAsistencia();
+    }
+
+    function renderHistorialAsistencia() {
+        const cont = document.getElementById('perfil-historial-content');
+        if (!cont) return;
+        const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+        const historial   = proyectos.map(p => {
+            const key  = `${p.fecha_registro}_${sesion.correo}`;
+            const resp = asistencias[key];
+            return { nombre: p.nombre, fecha: p.fecha, hora: p.hora, resp };
+        }).filter(p => p.resp);
+
+        if (historial.length === 0) {
+            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin historial de asistencia aún.</p>';
+            return;
+        }
+        const confirmados = historial.filter(p => p.resp === 'confirma').length;
+        const noPuedo     = historial.filter(p => p.resp === 'no-puedo').length;
+        cont.innerHTML = `
+            <div style="display:flex;gap:16px;margin-bottom:12px;font-size:0.85rem;">
+                <span style="color:#2ed573;">\u2713 Confirmados: <strong>${confirmados}</strong></span>
+                <span style="color:#ff4757;">\u2715 No pude ir: <strong>${noPuedo}</strong></span>
+                <span style="color:var(--text-muted);">Total: <strong>${historial.length}</strong></span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                ${historial.map(p => {
+                    const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                    const color = p.resp === 'confirma' ? '#2ed573' : '#ff4757';
+                    const icon  = p.resp === 'confirma' ? '\u2713' : '\u2715';
+                    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:0.82rem;">
+                        <span>${p.nombre}</span>
+                        <span style="color:var(--text-muted);font-size:0.75rem;">${fechaFmt}${p.hora ? ' ' + p.hora : ''}</span>
+                        <span style="color:${color};font-weight:600;">${icon}</span>
+                    </div>`;
+                }).join('')}
+            </div>`;
+    }
+
+    document.getElementById('perfil-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nuevoNombre = document.getElementById('perfil-nombre').value.trim();
+        const nuevoTel    = document.getElementById('perfil-telefono').value.trim();
+        const nuevaClave  = document.getElementById('perfil-password').value;
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const idx = usuarios.findIndex(u => u.correo === sesion.correo);
+        if (idx !== -1) {
+            usuarios[idx].nombre   = nuevoNombre;
+            usuarios[idx].telefono = nuevoTel;
+            if (nuevaClave) usuarios[idx].clave = btoa(nuevaClave);
+            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+        }
+        sesion.nombre = nuevoNombre;
+        sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+        if (displayName) displayName.textContent = nuevoNombre;
+        if (avatarEl) {
+            const iniciales = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+            avatarEl.textContent = iniciales;
+        }
+        document.getElementById('perfil-password').value = '';
+        showNotification('Perfil actualizado correctamente.');
+    });
+
+    // Cargar perfil al entrar a ajustes
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'ajustes-view') {
+            link.addEventListener('click', () => setTimeout(cargarPerfil, 50));
+        }
+    });
+    cargarPerfil();
+
+    // ─── RECURSOS ────────────────────────────────────────────
+    const SERVICIOS_SEMANA = [
+        { label: '\u2600\ufe0f Domingo \u00b7 1er Servicio (7:30 AM)',  value: 'dom-1' },
+        { label: '\u2600\ufe0f Domingo \u00b7 2do Servicio (11:00 AM)', value: 'dom-2' },
+        { label: '\u2600\ufe0f Domingo \u00b7 3er Servicio (1:00 PM)',  value: 'dom-3' },
+        { label: '\u2600\ufe0f Domingo \u00b7 4to Servicio (7:00 PM)',  value: 'dom-4' },
+        { label: '\ud83c\udf19 Mi\u00e9rcoles \u00b7 Servicio (7:00 PM)', value: 'mie-1' },
+    ];
+
+    function getFechasServicio(servicioKey) {
+        const hoy = new Date();
+        for (let i = 0; i <= 7; i++) {
+            const d = new Date(hoy);
+            d.setDate(hoy.getDate() + i);
+            const horaMap = { 'dom-1': '7:30 AM', 'dom-2': '11:00 AM', 'dom-3': '1:00 PM', 'dom-4': '7:00 PM' };
+            if (servicioKey.startsWith('dom') && d.getDay() === 0)
+                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} \u00b7 ${horaMap[servicioKey]}`;
+            if (servicioKey === 'mie-1' && d.getDay() === 3)
+                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} \u00b7 7:00 PM`;
+        }
+        return '';
+    }
+
+    function abrirDocPreview(p) {
+        const modal   = document.getElementById('doc-preview-modal');
+        const titulo  = document.getElementById('doc-preview-titulo');
+        const content = document.getElementById('doc-preview-content');
+        if (!modal) return;
+        titulo.textContent = p.titulo;
+        content.innerHTML  = '';
+        const ext = (p.nombreArchivo || '').split('.').pop().toLowerCase();
+        if (['pdf'].includes(ext) && p.url.startsWith('data:')) {
+            content.innerHTML = `<iframe src="${p.url}" style="width:100%;height:60vh;border:none;border-radius:8px;"></iframe>`;
+        } else if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
+            content.innerHTML = `<img src="${p.url}" style="max-width:100%;border-radius:8px;">`;
+        } else {
+            content.innerHTML = `<div style="text-align:center;padding:30px;">
+                <div style="font-size:3rem;margin-bottom:16px;">\ud83d\udcc4</div>
+                <p style="color:var(--text-muted);margin-bottom:20px;">Vista previa no disponible para este formato.</p>
+                <a href="${p.url}" download="${p.nombreArchivo || p.titulo}" class="btn-primary" style="display:inline-block;padding:10px 24px;text-decoration:none;border-radius:10px;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));color:white;font-weight:600;">\ud83d\udce5 Descargar</a>
+            </div>`;
+        }
+        modal.classList.remove('hidden');
+    }
+
+    function puedeSubirRecursos() {
+        if (esAdmin) return true;
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        return Object.values(lideres).includes(sesion.nombre);
+    }
+
+    function renderRecursos() {
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        const pdfs   = JSON.parse(localStorage.getItem('recursos_pdfs')   || '[]');
+        const puedeSubir = puedeSubirRecursos();
+
+        const listaVideos = document.getElementById('recursos-videos-lista');
+        const listaPdfs   = document.getElementById('recursos-pdfs-lista');
+        const countVideos = document.getElementById('recursos-videos-count');
+        const countPdfs   = document.getElementById('recursos-pdfs-count');
+
+        if (countVideos) countVideos.textContent = videos.length > 0 ? `${videos.length} video(s)` : '';
+        if (countPdfs)   countPdfs.textContent   = pdfs.length   > 0 ? `${pdfs.length} recurso(s)` : '';
+
+        // Mostrar formularios solo a Admin y Líderes
+        document.getElementById('recursos-add-video-panel').style.display = puedeSubir ? '' : 'none';
+        document.getElementById('recursos-add-pdf-panel').style.display   = puedeSubir ? '' : 'none';
+
+        // Programación siempre primero, Videos siempre después
+        const contenedor = document.getElementById('recursos-view');
+        const secVideos  = document.getElementById('recursos-videos-section');
+        const secPdfs    = document.getElementById('recursos-pdfs-section');
+        if (contenedor && secVideos && secPdfs) {
+            if (secVideos.previousElementSibling !== secPdfs) {
+                contenedor.insertBefore(secPdfs, secVideos);
+            }
+        }
+
+        // Lista de videos (sin agrupación por servicio)
+        if (listaVideos) {
+            listaVideos.innerHTML = '';
+            if (videos.length === 0) {
+                listaVideos.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin videos agregados a\u00fan.</p>';
+            } else {
+                // Tabla para Admin/Líderes
+                if (puedeSubir) {
+                    const tablaWrap = document.createElement('div');
+                    tablaWrap.className = 'recurso-tabla-wrap';
+                    tablaWrap.innerHTML = `<table class="users-table" style="margin-bottom:16px;">
+                        <thead><tr>
+                            <th>#</th>
+                            <th>Título</th>
+                            <th class="text-center">Acciones</th>
+                        </tr></thead>
+                        <tbody id="videos-tabla-body"></tbody>
+                    </table>`;
+                    listaVideos.appendChild(tablaWrap);
+                    const tbody = document.getElementById('videos-tabla-body');
+                    videos.forEach((v, i) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="color:var(--text-muted);font-size:0.8rem;">${i+1}</td>
+                            <td>
+                                <a href="${v.url}" target="_blank" rel="noopener" style="color:var(--primary-color);text-decoration:none;font-size:0.88rem;">
+                                    \ud83c\udfac ${v.titulo}
+                                </a>
+                            </td>
+                            <td class="text-center">
+                                <div style="display:flex;gap:4px;justify-content:center;">
+                                    <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\u270f\ufe0f</button>
+                                    <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\ud83d\uddd1\ufe0f</button>
+                                </div>
+                            </td>`;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                // Cards para todos (siempre se muestran)
+                videos.forEach(v => {
+                    const card = document.createElement('div');
+                    card.className = 'recurso-card';
+                    const ytMatch = v.url.match(/(?:v=|youtu\.be\/)([^&?/]+)/);
+                    const thumb = ytMatch
+                        ? `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="recurso-thumb" alt="">`
+                        : '<div class="recurso-thumb-placeholder">\ud83c\udfac</div>';
+                    card.innerHTML = `
+                        <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link">
+                            ${thumb}
+                            <div class="recurso-info">
+                                <span class="recurso-titulo">${v.titulo}</span>
+                                <span class="recurso-url">${v.url.length > 50 ? v.url.substring(0,50)+'...' : v.url}</span>
+                            </div>
+                        </a>`;
+                    listaVideos.appendChild(card);
+                });
+            }
+        }
+
+        // Agrupar PDFs por servicio
+        if (listaPdfs) {
+            listaPdfs.innerHTML = '';
+            if (pdfs.length === 0) {
+                listaPdfs.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin cursos o PDFs agregados a\u00fan.</p>';
+            } else {
+                // Tabla/lista de todos los archivos (para Admin/Líderes)
+                if (puedeSubir) {
+                    const tablaWrap = document.createElement('div');
+                    tablaWrap.className = 'recurso-tabla-wrap';
+                    tablaWrap.innerHTML = `<table class="users-table" style="margin-bottom:16px;">
+                        <thead><tr>
+                            <th>#</th>
+                            <th>Título</th>
+                            <th>Servicio</th>
+                            <th class="text-center">Acciones</th>
+                        </tr></thead>
+                        <tbody id="pdfs-tabla-body"></tbody>
+                    </table>`;
+                    listaPdfs.appendChild(tablaWrap);
+                    const tbody = document.getElementById('pdfs-tabla-body');
+                    const SERVICIOS_MAP = { 'dom-1': 'Dom 1er', 'dom-2': 'Dom 2do', 'dom-3': 'Dom 3er', 'dom-4': 'Dom 4to', 'mie-1': 'Mié' };
+                    pdfs.forEach((p, i) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="color:var(--text-muted);font-size:0.8rem;">${i+1}</td>
+                            <td>
+                                <a href="${p.url}" target="_blank" rel="noopener" download="${p.nombreArchivo||p.titulo}" style="color:var(--primary-color);text-decoration:none;font-size:0.88rem;">
+                                    \ud83d\udcce ${p.titulo}
+                                </a>
+                            </td>
+                            <td style="font-size:0.8rem;color:var(--text-muted);">${SERVICIOS_MAP[p.servicio] || 'General'}</td>
+                            <td class="text-center">
+                                <div style="display:flex;gap:4px;justify-content:center;">
+                                    <button class="btn-secondary btn-edit-recurso-pdf" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\u270f\ufe0f</button>
+                                    <button class="btn-danger recurso-del" data-tipo="pdfs" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\ud83d\uddd1\ufe0f</button>
+                                </div>
+                            </td>`;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                // Vista de cards agrupadas por servicio (para todos)
+                SERVICIOS_SEMANA.forEach(srv => {
+                    const srvPdfs = pdfs.filter(p => p.servicio === srv.value);
+                    if (srvPdfs.length === 0) return;
+                    const fechaReal = getFechasServicio(srv.value);
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = `${srv.label}${fechaReal ? ' — ' + fechaReal : ''}`;
+                    listaPdfs.appendChild(sep);
+                    srvPdfs.forEach(p => {
+                        const realIdx = pdfs.indexOf(p);
+                        const card = document.createElement('div');
+                        card.className = 'recurso-card';
+                        card.style.cursor = 'pointer';
+                        const icono = '\ud83d\udcc4';
+                        const subtitulo = p.nombreArchivo || (p.url.length > 50 ? p.url.substring(0,50)+'...' : p.url);
+                        card.innerHTML = `
+                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                                <div class="recurso-thumb-placeholder">${icono}</div>
+                                <div class="recurso-info">
+                                    <span class="recurso-titulo">${p.titulo}</span>
+                                    <span class="recurso-url">${subtitulo}</span>
+                                </div>
+                            </div>
+                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">\ud83d\uddd1\ufe0f</button>` : ''}`;
+                        listaPdfs.appendChild(card);
+                    });
+                });
+                const sinServicio = pdfs.filter(p => !p.servicio);
+                if (sinServicio.length > 0) {
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = 'General';
+                    listaPdfs.appendChild(sep);
+                    sinServicio.forEach(p => {
+                        const realIdx = pdfs.indexOf(p);
+                        const card = document.createElement('div');
+                        card.className = 'recurso-card';
+                        card.style.cursor = 'pointer';
+                        card.innerHTML = `
+                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                                <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
+                                <div class="recurso-info">
+                                    <span class="recurso-titulo">${p.titulo}</span>
+                                    <span class="recurso-url">${p.nombreArchivo || ''}</span>
+                                </div>
+                            </div>
+                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">\ud83d\uddd1\ufe0f</button>` : ''}`;
+                        listaPdfs.appendChild(card);
+                    });
+                }
+            }
+        }
+    } // fin renderRecursos
+
+    // ── Delegación de eventos recursos (una sola vez) ──
+    document.getElementById('recursos-videos-lista')?.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-edit-recurso-video')) {
+                const idx    = parseInt(e.target.dataset.idx);
+                const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+                const v      = videos[idx];
+                if (!v) return;
+                document.getElementById('ev-titulo').value = v.titulo;
+                document.getElementById('ev-url').value    = v.url;
+                document.getElementById('edit-video-modal')._videoIdx = idx;
+                document.getElementById('edit-video-modal').classList.remove('hidden');
+            }
+        });
+
+        // Handler eliminar — delegación
+        document.getElementById('recursos-videos-lista')?.addEventListener('click', (e) => {
+            if (e.target.classList.contains('recurso-del') && e.target.dataset.tipo === 'videos') {
+                const idx   = parseInt(e.target.dataset.idx);
+                const items = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_videos', JSON.stringify(items));
+                renderRecursos();
+            }
+        });
+
+        document.getElementById('recursos-pdfs-lista')?.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-idx]');
+            const idx = target ? parseInt(target.dataset.idx) : -1;
+
+            // Abrir previsualización
+            if (e.target.classList.contains('btn-abrir-doc') || e.target.closest('.btn-abrir-doc')) {
+                const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                const p = pdfs[idx];
+                if (p) abrirDocPreview(p);
+                return;
+            }
+            if (e.target.classList.contains('btn-del-recurso-pdf') || e.target.closest('.btn-del-recurso-pdf')) {
+                const items = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_pdfs', JSON.stringify(items));
+                renderRecursos();
+                return;
+            }
+            if (e.target.classList.contains('recurso-del') && e.target.dataset.tipo === 'pdfs') {
+                const items = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_pdfs', JSON.stringify(items));
+                renderRecursos();
+                return;
+            }
+            if (e.target.classList.contains('btn-edit-recurso-pdf')) {
+                const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                const p    = pdfs[idx];
+                if (!p) return;
+                document.getElementById('er-titulo').value   = p.titulo;
+                document.getElementById('er-servicio').value = p.servicio || '';
+                document.getElementById('er-file').value     = '';
+                const archivoActual = document.getElementById('er-archivo-actual');
+                if (archivoActual) archivoActual.textContent = p.nombreArchivo ? `Archivo actual: ${p.nombreArchivo}` : '';
+                document.getElementById('edit-recurso-modal')._recursoIdx = idx;
+                document.getElementById('edit-recurso-modal').classList.remove('hidden');
+            }
+        });
+
+    document.getElementById('edit-video-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const idx    = document.getElementById('edit-video-modal')._videoIdx;
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        if (!videos[idx]) return;
+        videos[idx].titulo = document.getElementById('ev-titulo').value.trim();
+        videos[idx].url    = document.getElementById('ev-url').value.trim();
+        localStorage.setItem('recursos_videos', JSON.stringify(videos));
+        document.getElementById('edit-video-modal').classList.add('hidden');
+        renderRecursos();
+        showNotification('Video actualizado.');
+    });
+
+    document.getElementById('edit-recurso-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const idx     = document.getElementById('edit-recurso-modal')._recursoIdx;
+        const pdfs    = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+        if (!pdfs[idx]) return;
+        const titulo   = document.getElementById('er-titulo').value.trim();
+        const servicio = document.getElementById('er-servicio').value;
+        const file     = document.getElementById('er-file')?.files[0];
+
+        const guardar = (nuevoUrl, nuevoNombre) => {
+            pdfs[idx].titulo   = titulo;
+            pdfs[idx].servicio = servicio;
+            if (nuevoUrl)    pdfs[idx].url           = nuevoUrl;
+            if (nuevoNombre) pdfs[idx].nombreArchivo = nuevoNombre;
+            localStorage.setItem('recursos_pdfs', JSON.stringify(pdfs));
+            document.getElementById('edit-recurso-modal').classList.add('hidden');
+            renderRecursos();
+            showNotification('Recurso actualizado.');
+        };
+
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => guardar(ev.target.result, file.name);
+            reader.readAsDataURL(file);
+        } else {
+            guardar(null, null);
+        }
+    });
+
+    document.getElementById('form-add-video')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const titulo = document.getElementById('video-titulo').value.trim();
+        const url    = document.getElementById('video-url').value.trim();
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        videos.push({ titulo, url, fecha: new Date().toISOString() });
+        localStorage.setItem('recursos_videos', JSON.stringify(videos));
+        e.target.reset();
+        renderRecursos();
+        showNotification('Video agregado.');
+    });
+
+    document.getElementById('form-add-pdf')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const titulo    = document.getElementById('pdf-titulo').value.trim();
+        const fileInput = document.getElementById('pdf-file');
+        const file      = fileInput?.files[0];
+
+        if (!file) {
+            showNotification('Selecciona un archivo para subir.', 'error');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const pdfs     = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+            const servicio = document.getElementById('pdf-servicio')?.value || '';
+            pdfs.push({ titulo, url: ev.target.result, esLocal: true, nombreArchivo: file.name, servicio, fecha: new Date().toISOString() });
+            localStorage.setItem('recursos_pdfs', JSON.stringify(pdfs));
+            e.target.reset();
+            renderRecursos();
+            showNotification('Archivo subido correctamente.');
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Cargar recursos al entrar a la vista y al inicio
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'recursos-view') {
+            link.addEventListener('click', () => setTimeout(renderRecursos, 50));
+        }
+    });
+    renderRecursos(); // Cargar al inicio también
+
+    // ─── AJUSTES: LIDERES DE AREA (solo Admin) ───────────────
+    const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Switchers','Streaming','Luces','Diseño','Edición','Protocolos','Cámaras'];
+
+    function cargarLideres() {
+        const panel = document.getElementById('lideres-container');
+        if (!panel) return;
+        if (!esAdmin) { document.getElementById('ajustes-lideres-panel')?.style && (document.getElementById('ajustes-lideres-panel').style.display = 'none'); return; }
+        const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        panel.innerHTML = '';
+        AREAS.forEach(area => {
+            const row = document.createElement('div');
+            row.className = 'area-row';
+            const optsHtml = `<option value="">Sin líder</option>` +
+                usuarios.map(u => `<option value="${u.nombre}" ${lideres[area] === u.nombre ? 'selected' : ''}>${u.nombre} (${u.area})</option>`).join('');
+            row.innerHTML = `
+                <span class="area-nombre">${area}</span>
+                <select class="filter-select lider-select" data-area="${area}" style="flex:1;max-width:220px;">${optsHtml}</select>`;
+            panel.appendChild(row);
+        });
+    }
+    cargarLideres();
+
+    document.getElementById('btn-guardar-lideres')?.addEventListener('click', () => {
+        const lideres = {};
+        document.querySelectorAll('.lider-select').forEach(sel => {
+            if (sel.value) lideres[sel.dataset.area] = sel.value;
+        });
+        localStorage.setItem('lideres_area', JSON.stringify(lideres));
+        showNotification('Líderes de área guardados.');
+    });
+
+    // ─── AJUSTES: MODO CLARO/OSCURO ──────────────────────────
+    const toggleTheme = document.getElementById('toggle-theme');
+    const savedTheme  = localStorage.getItem('tema') || 'dark';
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+        if (toggleTheme) toggleTheme.textContent = '\ud83c\udf19 Modo Oscuro';
+    }
+    toggleTheme?.addEventListener('click', () => {
+        document.body.classList.toggle('light-mode');
+        const isLight = document.body.classList.contains('light-mode');
+        localStorage.setItem('tema', isLight ? 'light' : 'dark');
+        toggleTheme.textContent = isLight ? '\ud83c\udf19 Modo Oscuro' : '\u2600\ufe0f Modo Claro';
+    });
+
+}); // fin DOMContentLoaded

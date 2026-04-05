@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Producción - Portal de Acceso</title>
+    <!-- Mejora SEO -->
+    <meta name="description" content="Portal de acceso y registro para el equipo de producción. Únete a nuestro equipo en diferentes áreas.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <script>(function(){ if(localStorage.getItem('tema')==='light') document.body.classList.add('light-mode'); })();</script>
+    <!-- Efectos visuales de fondo (Futurista) -->
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+    </div>
+    
+    <main class="container">
+        <!-- Tarjeta de Login -->
+        <div class="glass-panel" id="login-panel">
+            <div class="panel-header">
+                <h1>Bienvenido a <span class="highlight">Producción</span></h1>
+                <p>Ingresa tus credenciales para continuar</p>
+            </div>
+            <form id="login-form">
+                <div class="input-group">
+                    <label for="login-email">Correo Electrónico</label>
+                    <input type="email" id="login-email" required placeholder="tu@correo.com">
+                </div>
+                <div class="input-group">
+                    <label for="login-password">Contraseña</label>
+                    <input type="password" id="login-password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn-primary">Iniciar Sesión</button>
+            </form>
+            <div class="panel-footer">
+                <p>¿No estás registrado? <a href="#" id="show-register">Regístrate aquí</a></p>
+            </div>
+        </div>
+
+        <!-- Tarjeta de Registro -->
+        <div class="glass-panel hidden" id="register-panel">
+            <div class="panel-header">
+                <h1>Únete al <span class="highlight">Equipo</span></h1>
+                <p>Completa tus datos para registrarte</p>
+            </div>
+            <form id="register-form">
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-nombre">Nombres</label>
+                        <input type="text" id="reg-nombre" required placeholder="Ej: Juan">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-apellido">Apellidos</label>
+                        <input type="text" id="reg-apellido" required placeholder="Ej: Pérez">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="reg-correo">Correo Electrónico</label>
+                    <input type="email" id="reg-correo" required placeholder="tu@correo.com">
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-password">Contraseña</label>
+                        <input type="password" id="reg-password" required minlength="6" placeholder="••••••••">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-password-confirm">Confirmar Contraseña</label>
+                        <input type="password" id="reg-password-confirm" required minlength="6" placeholder="••••••••">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-telefono">Teléfono</label>
+                        <input type="tel" id="reg-telefono" required placeholder="+51 999 999 999">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-distrito">Distrito</label>
+                        <input type="text" id="reg-distrito" required placeholder="Tu distrito">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="reg-area">Área a la que perteneces</label>
+                    <select id="reg-area" required>
+                        <option value="" disabled selected>Selecciona un área...</option>
+                        <option value="visuales">Visuales</option>
+                        <option value="filmakers">Filmakers</option>
+                        <option value="fotografia">Fotografía</option>
+                        <option value="coordinacion">Coordinación</option>
+                        <option value="switchers">Switchers</option>
+                        <option value="streaming">Streaming</option>
+                        <option value="luces">Luces</option>
+                        <option value="diseno">Diseño</option>
+                        <option value="edicion">Edición</option>
+                        <option value="protocolos">Protocolos</option>
+                        <option value="camaras">Cámaras</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary">Completar Registro</button>
+            </form>
+            <div class="panel-footer">
+                <p>¿Ya tienes una cuenta? <a href="#" id="show-login">Inicia Sesión</a></p>
+            </div>
+        </div>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>

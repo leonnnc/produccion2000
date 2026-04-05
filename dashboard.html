@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Producción - Dashboard ERP</title>
+    <meta name="description" content="Dashboard principal del sistema ERP de Producción.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body class="dashboard-body">
+    <script>
+        (function() { if (!sessionStorage.getItem('sesion_activa')) window.location.replace('index.html'); })();
+    </script>
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-header">
+                <h2>Pro<span class="highlight">DUC</span></h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li class="active"><a href="#" class="nav-link" data-target="dashboard-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        Dashboard
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="usuarios-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                        Usuarios
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="proyectos-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                        Proyectos
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="staff-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        Staff
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="agenda-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        Agenda
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="recursos-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                        Recursos
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="ajustes-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        Ajustes
+                    </a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="#" class="logout-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    Cerrar Sesión
+                </a>
+            </div>
+        </aside>
+
+        <!-- Contenido Principal -->
+        <main class="main-content">
+            <!-- VISTA: DASHBOARD -->
+            <div id="dashboard-view" class="view-section active-view">
+                <!-- Tarjeta de bienvenida con info del usuario -->
+                <div class="bienvenida-card glass-panel" style="margin-bottom:20px;">
+                    <div id="bienvenida-content"></div>
+                </div>
+                <section class="dashboard-grid">
+                    <div class="widget-card glass-panel">
+                        <div class="widget-icon primary-bg">
+                            <svg viewBox="0 0 24 24" fill="white" stroke="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                        </div>
+                        <div class="widget-info">
+                            <h3>Usuarios Registrados</h3>
+                            <p class="widget-number" id="stat-usuarios">0</p>
+                            <span class="trend neutral" id="stat-usuarios-label">Sin registros aún</span>
+                        </div>
+                    </div>
+                    <div class="widget-card glass-panel">
+                        <div class="widget-icon purple-bg">
+                            <svg viewBox="0 0 24 24" fill="white" stroke="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        </div>
+                        <div class="widget-info">
+                            <h3>Proyectos Creados</h3>
+                            <p class="widget-number" id="stat-proyectos">0</p>
+                            <span class="trend neutral" id="stat-proyectos-label">Sin proyectos aún</span>
+                        </div>
+                    </div>
+                    <div class="widget-card glass-panel">
+                        <div class="widget-icon success-bg">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        </div>
+                        <div class="widget-info">
+                            <h3>Servicios Reservados</h3>
+                            <p class="widget-number" id="stat-servicios">0</p>
+                            <span class="trend neutral" id="stat-servicios-label">Sin reservas aún</span>
+                        </div>
+                    </div>
+                    <div class="widget-card glass-panel">
+                        <div class="widget-icon warning-bg">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                        </div>
+                        <div class="widget-info">
+                            <h3>Tareas de Staff</h3>
+                            <p class="widget-number" id="stat-tareas">0</p>
+                            <span class="trend neutral" id="stat-tareas-label">Sin tareas aún</span>
+                        </div>
+                    </div>
+                </section>
+                <section class="dashboard-details">
+                    <div class="details-panel glass-panel">
+                        <div class="panel-heading">
+                            <h3>Servicios Esta Semana</h3>
+                        </div>
+                        <ul class="activity-list" id="servicios-semana-list">
+                            <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados esta semana.</span></li>
+                        </ul>
+                    </div>
+                </section>
+                <!-- Panel programación por servicio (Staff/Siervo) -->
+                <div class="details-panel glass-panel" id="dash-programacion-panel" style="margin-bottom:0;display:none;">
+                    <div class="panel-heading">
+                        <h3>📄 Programación de mis Servicios</h3>
+                    </div>
+                    <div id="dash-programacion-content"></div>
+                </div>
+                <!-- Panel proyectos del dashboard -->
+                <section class="dashboard-details" style="margin-top:0;">
+                    <div class="details-panel glass-panel" id="dash-proyectos-panel">
+                        <div class="panel-heading">
+                            <h3 id="dash-proyectos-titulo">Proyectos</h3>
+                        </div>
+                        <ul class="activity-list" id="dash-proyectos-list">
+                            <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos.</span></li>
+                        </ul>
+                    </div>
+                    <div class="details-panel glass-panel" id="dash-tareas-panel">
+                        <div class="panel-heading">
+                            <h3 id="dash-tareas-titulo">Tareas</h3>
+                        </div>
+                        <ul class="activity-list" id="dash-tareas-list">
+                            <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas.</span></li>
+                        </ul>
+                    </div>
+                </section>
+                <!-- Panel Tareas Staff (solo Admin) -->
+                <div class="details-panel glass-panel" id="dash-tareas-staff-panel" style="margin-top:0;">
+                    <div class="panel-heading">
+                        <h3>Tareas Staff</h3>
+                        <span id="dash-tareas-staff-count" style="color:var(--secondary-color);font-size:0.82rem;"></span>
+                    </div>
+                    <div id="dash-tareas-staff-list"></div>
+                </div>
+            </div>
+
+            <!-- VISTA: USUARIOS -->
+            <div id="usuarios-view" class="view-section hidden-view">
+                <div class="details-panel glass-panel">
+                    <div class="panel-heading" style="flex-wrap:wrap;gap:10px;">
+                        <h2>Usuarios Registrados</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <select id="filtro-rol" class="filter-select">
+                                <option value="">Todos los roles</option>
+                                <option value="Admin">Admin</option>
+                                <option value="Staff">Staff</option>
+                                <option value="Siervo">Siervo</option>
+                            </select>
+                            <select id="filtro-area" class="filter-select">
+                                <option value="">Todas las áreas</option>
+                                <option value="Visuales">Visuales</option>
+                                <option value="Filmakers">Filmakers</option>
+                                <option value="Fotografía">Fotografía</option>
+                                <option value="Coordinación">Coordinación</option>
+                                <option value="Switchers">Switchers</option>
+                                <option value="Streaming">Streaming</option>
+                                <option value="Luces">Luces</option>
+                                <option value="Diseño">Diseño</option>
+                                <option value="Edición">Edición</option>
+                                <option value="Protocolos">Protocolos</option>
+                                <option value="Cámaras">Cámaras</option>
+                                <option value="Administración">Administración</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="users-table" id="tabla-usuarios-admin">
+                            <thead>
+                                <tr>
+                                    <th>Nombre Completo</th>
+                                    <th>Área</th>
+                                    <th>Rol</th>
+                                    <th>Teléfono</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usuarios-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA: PROYECTOS -->
+            <div id="proyectos-view" class="view-section hidden-view">
+                <!-- Lista de proyectos -->
+                <div class="details-panel glass-panel" style="margin-bottom:20px;">
+                    <div class="panel-heading" style="flex-wrap:wrap;gap:8px;">
+                        <h2>Proyectos / Eventos</h2>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <span id="proyectos-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
+                            <select id="filtro-estado-proy" class="filter-select">
+                                <option value="">Todos los estados</option>
+                                <option value="Planificado">Planificado</option>
+                                <option value="En curso">En curso</option>
+                                <option value="Completado">Completado</option>
+                            </select>
+                            <button class="btn-secondary" id="btn-toggle-calendario" style="padding:4px 10px;font-size:0.78rem;">📅 Calendario</button>
+                        </div>
+                    </div>
+                    <div id="proyectos-calendario" class="hidden" style="margin-bottom:16px;"></div>
+                    <div id="proyectos-lista" style="margin-bottom:10px;"></div>
+                </div>
+                <!-- Formulario crear proyecto (solo Admin) -->
+                <div class="details-panel glass-panel" id="crear-proyecto-panel" style="margin-bottom:20px;">
+                    <div class="panel-heading">
+                        <h2>Crear Nuevo Proyecto</h2>
+                    </div>
+                    <form id="proyectos-form" class="custom-form">
+                        <div class="input-group">
+                            <label>Nombre del Evento</label>
+                            <input type="text" id="proj-nombre" placeholder="Ej: Aniversario 2026" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Fecha del Evento</label>
+                                <input type="date" id="proj-fecha" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Hora del Evento</label>
+                                <input type="time" id="proj-hora" required>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Áreas Requeridas y Siervos por Área</label>
+                            <div id="proj-areas-container" class="areas-container">
+                                <div class="area-row" data-area="Visuales"><span class="area-icono">🎬</span><span class="area-nombre">Visuales</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Filmakers"><span class="area-icono">🎥</span><span class="area-nombre">Filmakers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Fotografía"><span class="area-icono">📷</span><span class="area-nombre">Fotografía</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Coordinación"><span class="area-icono">📋</span><span class="area-nombre">Coordinación</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Switchers"><span class="area-icono">🎛️</span><span class="area-nombre">Switchers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Streaming"><span class="area-icono">📡</span><span class="area-nombre">Streaming</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Luces"><span class="area-icono">💡</span><span class="area-nombre">Luces</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Diseño"><span class="area-icono">🎨</span><span class="area-nombre">Diseño</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Edición"><span class="area-icono">✂️</span><span class="area-nombre">Edición</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Protocolos"><span class="area-icono">📜</span><span class="area-nombre">Protocolos</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Cámaras"><span class="area-icono">📸</span><span class="area-nombre">Cámaras</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción / Notas</label>
+                            <textarea id="proj-desc" rows="3" placeholder="Detalles adicionales del evento..."></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:20px;">Publicar Proyecto</button>
+                    </form>
+                </div>
+                <!-- Historial de proyectos (al fondo) -->
+                <div class="details-panel glass-panel">
+                    <div class="panel-heading">
+                        <h2>📁 Historial</h2>
+                        <span id="historial-count" style="color:var(--text-muted);font-size:0.85rem;"></span>
+                    </div>
+                    <div id="proyectos-historial"></div>
+                </div>
+            </div>
+
+            <!-- VISTA: STAFF -->
+            <div id="staff-view" class="view-section hidden-view">
+                <div class="details-panel glass-panel" id="mis-tareas-panel" style="margin-bottom:20px;">
+                    <div class="panel-heading">
+                        <h2 id="mis-tareas-titulo">Mis Tareas del Mes</h2>
+                        <span id="mis-tareas-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
+                    </div>
+                    <ul class="activity-list" id="mis-tareas-list"></ul>
+                </div>
+                <div class="details-panel glass-panel" id="crear-tarea-panel">
+                    <div class="panel-heading"><h2>Crear Tarea Interna</h2></div>
+                    <form id="staff-form" class="custom-form">
+                        <div class="input-group">
+                            <label>Título de la Tarea</label>
+                            <input type="text" id="staff-titulo" placeholder="Ej: Reparación de Consola HDMI" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción</label>
+                            <textarea id="staff-desc" rows="3" placeholder="Detalles de la tarea..."></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Asignado a</label>
+                                <select id="staff-asignado" required>
+                                    <option value="" disabled selected>Selecciona un usuario...</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Prioridad</label>
+                                <select id="staff-prioridad" required>
+                                    <option value="Media">Media</option>
+                                    <option value="Alta">Alta</option>
+                                    <option value="Baja">Baja</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Fecha de Vencimiento</label>
+                            <input type="date" id="staff-vencimiento" required>
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:20px;">Crear Tarea</button>
+                    </form>
+                </div>
+                <!-- Historial de tareas vencidas -->
+                <div class="details-panel glass-panel" style="margin-top:0;">
+                    <div class="panel-heading">
+                        <h2>📋 Historial de Tareas</h2>
+                        <span id="historial-tareas-count" style="color:var(--text-muted);font-size:0.85rem;"></span>
+                    </div>
+                    <div id="tareas-historial"></div>
+                </div>
+            </div>
+
+            <!-- VISTA: AGENDA -->
+            <div id="agenda-view" class="view-section hidden-view">
+                <div class="details-panel glass-panel">
+                    <div class="panel-heading" style="flex-wrap:wrap;gap:8px;">
+                        <div>
+                            <h2 id="agenda-week-title">Agenda Semanal</h2>
+                            <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px;" id="agenda-week-range"></p>
+                        </div>
+                        <div style="display:flex;gap:8px;align-items:center;" id="agenda-admin-controls">
+                            <!-- Solo Admin: ver reservas de todos -->
+                            <button class="btn-secondary" id="btn-ver-reservas" style="display:none;">👥 Ver quién reservó</button>
+                        </div>
+                    </div>
+                    <form id="agenda-form" style="max-width:100%;">
+                        <div id="agenda-dynamic-container"></div>
+                        <button type="submit" class="btn-primary" id="agenda-submit-btn" style="margin-top:30px;">Confirmar Selección</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- VISTA: RECURSOS -->
+            <div id="recursos-view" class="view-section hidden-view">
+                <!-- Para Admin/Líderes: Videos primero, luego PDFs -->
+                <!-- Para Staff/Siervos: PDFs primero, luego Videos (se reordena por JS) -->
+                <div id="recursos-pdfs-section" class="details-panel glass-panel" style="margin-bottom:20px;">
+                    <div class="panel-heading">
+                        <h2>📄 Programación</h2>
+                        <span id="recursos-pdfs-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
+                    </div>
+                    <div id="recursos-pdfs-lista" style="margin-bottom:12px;"></div>
+                    <div id="recursos-add-pdf-panel">
+                        <form id="form-add-pdf" class="custom-form" style="margin-top:8px;">
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <label>Título</label>
+                                    <input type="text" id="pdf-titulo" placeholder="Ej: Manual de Cámaras" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Servicio</label>
+                                    <select id="pdf-servicio" class="filter-select" style="width:100%;padding:10px 12px;">
+                                        <option value="">General</option>
+                                        <option value="dom-1">☀️ Domingo · 1er Servicio</option>
+                                        <option value="dom-2">☀️ Domingo · 2do Servicio</option>
+                                        <option value="dom-3">☀️ Domingo · 3er Servicio</option>
+                                        <option value="dom-4">☀️ Domingo · 4to Servicio</option>
+                                        <option value="mie-1">🌙 Miércoles · Servicio</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label>Subir archivo</label>
+                                <input type="file" id="pdf-file" style="padding:8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:10px;color:var(--text-main);width:100%;">
+                            </div>
+                            <button type="submit" class="btn-primary" style="max-width:160px;margin-top:10px;font-size:0.85rem;">+ Subir</button>
+                        </form>
+                    </div>
+                </div>
+                <div id="recursos-videos-section" class="details-panel glass-panel">
+                    <div class="panel-heading">
+                        <h2>🎬 Videos</h2>
+                        <span id="recursos-videos-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
+                    </div>
+                    <div id="recursos-videos-lista" style="margin-bottom:12px;"></div>
+                    <div id="recursos-add-video-panel">
+                        <form id="form-add-video" class="custom-form" style="margin-top:8px;">
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <label>Título del video</label>
+                                    <input type="text" id="video-titulo" placeholder="Ej: Capacitación Cámaras" required>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label>URL de YouTube</label>
+                                <input type="url" id="video-url" placeholder="https://youtube.com/..." required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="max-width:160px;margin-top:4px;font-size:0.85rem;">+ Agregar</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA: AJUSTES -->
+            <div id="ajustes-view" class="view-section hidden-view">
+                <div class="details-panel glass-panel">
+                    <div class="panel-heading"><h2>Ajustes del Sistema</h2></div>
+                    <p style="color:var(--text-muted);margin-bottom:20px;">Configuraciones generales del sistema.</p>
+                    <div id="ajustes-tema" style="display:flex;align-items:center;justify-content:space-between;padding:16px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid var(--panel-border);margin-bottom:20px;">
+                        <div>
+                            <strong>Modo de visualización</strong>
+                            <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px;">Alterna entre modo oscuro y claro</p>
+                        </div>
+                        <button class="btn-secondary" id="toggle-theme" style="padding:8px 16px;">☀️ Modo Claro</button>
+                    </div>
+                    <!-- Líderes de área — solo Admin -->
+                    <div id="ajustes-lideres-panel">
+                        <div class="panel-heading" style="margin-bottom:16px;">
+                            <h3>Líderes de Área</h3>
+                            <button class="btn-primary" id="btn-guardar-lideres" style="width:auto;padding:8px 20px;margin-top:0;font-size:0.85rem;">Guardar</button>
+                        </div>
+                        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">Asigna el líder responsable de cada área. Solo usuarios registrados.</p>
+                        <div id="lideres-container" class="areas-container"></div>
+                    </div>
+                    <!-- Perfil de usuario — todos los roles -->
+                    <div id="ajustes-perfil-panel" style="margin-top:24px;border-top:1px solid var(--panel-border);padding-top:20px;">
+                        <div class="panel-heading" style="margin-bottom:16px;">
+                            <h3>Mi Perfil</h3>
+                        </div>
+                        <form id="perfil-form" class="custom-form">
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <label>Nombre Completo</label>
+                                    <input type="text" id="perfil-nombre" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Teléfono</label>
+                                    <input type="tel" id="perfil-telefono" placeholder="+51 999 999 999">
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label>Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                                <input type="password" id="perfil-password" placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="btn-primary" style="margin-top:10px;max-width:200px;">Guardar Perfil</button>
+                        </form>
+                        <!-- Historial de asistencia -->
+                        <div id="perfil-historial" style="margin-top:20px;border-top:1px solid var(--panel-border);padding-top:16px;">
+                            <h3 style="font-size:0.9rem;margin-bottom:12px;">Historial de Asistencia</h3>
+                            <div id="perfil-historial-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: EDICIÓN DE USUARIOS -->
+            <div id="edit-user-modal" class="modal hidden">
+                <div class="modal-content glass-panel">
+                    <span class="close-modal" data-modal="edit-user-modal">&times;</span>
+                    <h2>Editar Usuario</h2>
+                    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:20px;">Modifica los datos del usuario.</p>
+                    <form id="edit-user-form" class="custom-form">
+                        <div class="input-group">
+                            <label>Nombre Completo</label>
+                            <input type="text" id="edit-nombre" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Correo Electrónico</label>
+                            <input type="email" id="edit-correo" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Área</label>
+                            <select id="edit-area" required>
+                                <option value="Visuales">Visuales</option>
+                                <option value="Filmakers">Filmakers</option>
+                                <option value="Fotografía">Fotografía</option>
+                                <option value="Coordinación">Coordinación</option>
+                                <option value="Switchers">Switchers</option>
+                                <option value="Streaming">Streaming</option>
+                                <option value="Luces">Luces</option>
+                                <option value="Diseño">Diseño</option>
+                                <option value="Edición">Edición</option>
+                                <option value="Protocolos">Protocolos</option>
+                                <option value="Cámaras">Cámaras</option>
+                                <option value="Administración">Administración</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:20px;">
+                            <label>Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                            <input type="password" id="edit-password" placeholder="••••••••">
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:10px;">Guardar Cambios</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- MODAL: CONFIRMACIÓN -->
+            <div id="confirm-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:400px;">
+                    <span class="close-modal" data-modal="confirm-modal">&times;</span>
+                    <h2 id="confirm-title">¿Estás seguro?</h2>
+                    <p id="confirm-message" style="color:var(--text-muted);margin:16px 0;font-size:0.95rem;"></p>
+                    <div style="display:flex;gap:10px;margin-top:20px;">
+                        <button class="btn-secondary" id="confirm-cancel" style="flex:1;padding:12px;">Cancelar</button>
+                        <button class="btn-primary" id="confirm-ok" style="flex:1;margin-top:0;padding:12px;">Confirmar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: VER RESERVAS (Admin) -->
+            <div id="reservas-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:600px;">
+                    <span class="close-modal" data-modal="reservas-modal">&times;</span>
+                    <h2>Reservas del Mes</h2>
+                    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:20px;" id="reservas-modal-subtitle"></p>
+                    <div id="reservas-modal-content"></div>
+                </div>
+            </div>
+
+            <!-- MODAL: DETALLE PROYECTO -->
+            <div id="proyecto-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:550px;">
+                    <span class="close-modal" data-modal="proyecto-modal">&times;</span>
+                    <h2 id="proy-modal-nombre"></h2>
+                    <div id="proy-modal-body" style="margin-top:16px;"></div>
+                    <div id="proy-modal-acciones" style="display:flex;gap:10px;margin-top:24px;"></div>
+                </div>
+            </div>
+
+            <!-- MODAL: EDITAR PROYECTO -->
+            <div id="edit-proyecto-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:580px;">
+                    <span class="close-modal" data-modal="edit-proyecto-modal">&times;</span>
+                    <h2>Editar Proyecto</h2>
+                    <form id="edit-proyecto-form" class="custom-form" style="margin-top:16px;">
+                        <div class="input-group">
+                            <label>Nombre del Evento</label>
+                            <input type="text" id="ep-nombre" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Fecha del Evento</label>
+                                <input type="date" id="ep-fecha" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Hora del Evento</label>
+                                <input type="time" id="ep-hora" required>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Áreas y Siervos Requeridos</label>
+                            <div id="ep-areas-container" class="areas-container">
+                                <div class="area-row" data-area="Visuales"><span class="area-icono">🎬</span><span class="area-nombre">Visuales</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Filmakers"><span class="area-icono">🎥</span><span class="area-nombre">Filmakers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Fotografía"><span class="area-icono">📷</span><span class="area-nombre">Fotografía</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Coordinación"><span class="area-icono">📋</span><span class="area-nombre">Coordinación</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Switchers"><span class="area-icono">🎛️</span><span class="area-nombre">Switchers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Streaming"><span class="area-icono">📡</span><span class="area-nombre">Streaming</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Luces"><span class="area-icono">💡</span><span class="area-nombre">Luces</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Diseño"><span class="area-icono">🎨</span><span class="area-nombre">Diseño</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Edición"><span class="area-icono">✂️</span><span class="area-nombre">Edición</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Protocolos"><span class="area-icono">📜</span><span class="area-nombre">Protocolos</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Cámaras"><span class="area-icono">📸</span><span class="area-nombre">Cámaras</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción / Notas</label>
+                            <textarea id="ep-desc" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:16px;">Guardar Cambios</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- MODAL: COMENTARIOS -->
+            <div id="comentarios-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:520px;">
+                    <span class="close-modal" data-modal="comentarios-modal">&times;</span>
+                    <h2 id="comentarios-modal-titulo">Comentarios</h2>
+                    <div id="comentarios-lista" class="activity-list" style="max-height:280px;overflow-y:auto;margin:16px 0;"></div>
+                    <div class="comentario-input-row">
+                        <input type="text" id="comentario-input" placeholder="Escribe un comentario..." maxlength="200">
+                        <button class="btn-primary" id="btn-enviar-comentario" style="width:auto;margin-top:0;padding:8px 16px;font-size:0.85rem;">Enviar</button>
+                    </div>
+                </div>
+            </div>
+            <div id="edit-tarea-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:480px;">
+                    <span class="close-modal" data-modal="edit-tarea-modal">&times;</span>
+                    <h2>Editar Tarea</h2>
+                    <form id="edit-tarea-form" class="custom-form" style="margin-top:16px;">
+                        <div class="input-group">
+                            <label>Título</label>
+                            <input type="text" id="et-titulo" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción</label>
+                            <textarea id="et-desc" rows="3"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Asignado a</label>
+                                <select id="et-asignado" required></select>
+                            </div>
+                            <div class="input-group">
+                                <label>Prioridad</label>
+                                <select id="et-prioridad">
+                                    <option value="Media">Media</option>
+                                    <option value="Alta">Alta</option>
+                                    <option value="Baja">Baja</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Fecha de Vencimiento</label>
+                            <input type="date" id="et-vencimiento">
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:16px;">Guardar Cambios</button>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL: PREVISUALIZAR DOCUMENTO -->
+    <div id="doc-preview-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="max-width:700px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+            <span class="close-modal" data-modal="doc-preview-modal">&times;</span>
+            <h2 id="doc-preview-titulo" style="margin-bottom:12px;font-size:1rem;"></h2>
+            <div id="doc-preview-content" style="flex:1;overflow:auto;"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: EDITAR RECURSO VIDEO -->
+    <div id="edit-video-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="max-width:480px;">
+            <span class="close-modal" data-modal="edit-video-modal">&times;</span>
+            <h2>Editar Video</h2>
+            <form id="edit-video-form" class="custom-form" style="margin-top:16px;">
+                <div class="input-group">
+                    <label>Título</label>
+                    <input type="text" id="ev-titulo" required>
+                </div>
+                <div class="input-group">
+                    <label>URL de YouTube</label>
+                    <input type="url" id="ev-url" required>
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top:10px;">Guardar Cambios</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: EDITAR RECURSO PDF -->
+    <div id="edit-recurso-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="max-width:480px;">
+            <span class="close-modal" data-modal="edit-recurso-modal">&times;</span>
+            <h2>Editar Recurso</h2>
+            <form id="edit-recurso-form" class="custom-form" style="margin-top:16px;">
+                <div class="input-group">
+                    <label>Título</label>
+                    <input type="text" id="er-titulo" required>
+                </div>
+                <div class="input-group">
+                    <label>Servicio</label>
+                    <select id="er-servicio" class="filter-select" style="width:100%;padding:10px 12px;">
+                        <option value="">General</option>
+                        <option value="dom-1">☀️ Domingo · 1er Servicio</option>
+                        <option value="dom-2">☀️ Domingo · 2do Servicio</option>
+                        <option value="dom-3">☀️ Domingo · 3er Servicio</option>
+                        <option value="dom-4">☀️ Domingo · 4to Servicio</option>
+                        <option value="mie-1">🌙 Miércoles · Servicio</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Reemplazar archivo (opcional)</label>
+                    <p id="er-archivo-actual" style="font-size:0.78rem;color:var(--text-muted);margin-bottom:6px;"></p>
+                    <input type="file" id="er-file" style="padding:8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:10px;color:var(--text-main);width:100%;">
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top:10px;">Guardar Cambios</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
