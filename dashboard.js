@@ -1,6 +1,64 @@
 // ==========================================
 // DASHBOARD ERP — dashboard.js
 // ==========================================
+import { DB } from './firebase.js';
+
+// ─── CAPA DE COMPATIBILIDAD localStorage ↔ Firebase ─────
+// Sincroniza Firebase → localStorage al cargar, y localStorage → Firebase al escribir
+const SYNC_KEYS = [
+    'usuarios_registrados','proyectos_creados','tareas_staff',
+    'servicios_reservados','asistencias_proyectos','aceptaciones_tareas',
+    'comentarios','recursos_pdfs','recursos_videos','lideres_area'
+];
+
+async function sincronizarDesdeFirebase() {
+    await Promise.all(SYNC_KEYS.map(async key => {
+        try {
+            let data;
+            const methodMap = {
+                'usuarios_registrados':  () => DB.getUsuarios(),
+                'proyectos_creados':     () => DB.getProyectos(),
+                'tareas_staff':          () => DB.getTareas(),
+                'servicios_reservados':  () => DB.getServicios(),
+                'asistencias_proyectos': () => DB.getAsistencias(),
+                'aceptaciones_tareas':   () => DB.getAceptaciones(),
+                'comentarios':           () => DB.getComentarios(),
+                'recursos_pdfs':         () => DB.getPdfs(),
+                'recursos_videos':       () => DB.getVideos(),
+                'lideres_area':          () => DB.getLideres(),
+            };
+            if (methodMap[key]) {
+                data = await methodMap[key]();
+                if (data !== null && data !== undefined) {
+                    _lsSetItem(key, JSON.stringify(data));
+                }
+            }
+        } catch(e) { console.warn('Sync error for', key, e); }
+    }));
+}
+
+// Parchear localStorage.setItem para sincronizar a Firebase automáticamente
+const _lsSetItem = localStorage.setItem.bind(localStorage);
+localStorage.setItem = function(key, value) {
+    _lsSetItem(key, value);
+    if (!SYNC_KEYS.includes(key)) return;
+    try {
+        const data = JSON.parse(value);
+        const writeMap = {
+            'usuarios_registrados': () => DB.setUsuarios(data),
+            'proyectos_creados':    () => DB.setProyectos(data),
+            'tareas_staff':         () => DB.setTareas(data),
+            'servicios_reservados': () => DB.setServicios(data),
+            'asistencias_proyectos':() => DB.setAsistencias(data),
+            'aceptaciones_tareas':  () => DB.setAceptaciones(data),
+            'comentarios':          () => DB.setComentarios(data),
+            'recursos_pdfs':        () => DB.setPdfs(data),
+            'recursos_videos':      () => DB.setVideos(data),
+            'lideres_area':         () => DB.setLideres(data),
+        };
+        if (writeMap[key]) writeMap[key]().catch(e => console.warn('Firebase write error:', e));
+    } catch(e) {}
+};
 
 const showNotification = (message, type = 'success') => {
     let container = document.getElementById('notification-container');
@@ -35,11 +93,34 @@ function confirmar(titulo, mensaje, onOk) {
     btnCancel.onclick = close;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+
+    // Sincronizar datos desde Firebase antes de renderizar
+    await sincronizarDesdeFirebase();
 
     const sesionRaw = sessionStorage.getItem('sesion_activa');
     const sesion    = sesionRaw ? JSON.parse(sesionRaw) : null;
     if (!sesion) { window.location.replace('index.html'); return; }
+
+    // Escuchar cambios en tiempo real desde otros dispositivos
+    DB.listenUsuarios(data => { _lsSetItem('usuarios_registrados', JSON.stringify(data)); });
+    DB.listenProyectos(data => {
+        _lsSetItem('proyectos_creados', JSON.stringify(data));
+        renderProyectos?.(); renderDashboardProyectosYTareas?.();
+    });
+    DB.listenTareas(data => {
+        _lsSetItem('tareas_staff', JSON.stringify(data));
+        cargarMisTareas?.(); renderHistorialTareas?.();
+        renderDashboardProyectosYTareas?.(); renderDashTareasStaff?.();
+    });
+    DB.listenServicios(data => {
+        _lsSetItem('servicios_reservados', JSON.stringify(data));
+        renderReservasSemana?.(); actualizarEstadisticas?.();
+    });
+    DB.listenPdfs(data => {
+        _lsSetItem('recursos_pdfs', JSON.stringify(data));
+        renderDashProgramacion?.(); renderRecursos?.();
+    });
 
     const displayName = { textContent: sesion.nombre }; // referencia virtual
     const displayRole = document.querySelector('.user-role');
@@ -108,13 +189,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─── ESTADISTICAS ────────────────────────────────────────
     function actualizarEstadisticas() {
         const sets = [
-            { key: 'usuarios_registrados', statId: 'stat-usuarios',  labelId: 'stat-usuarios-label',  empty: 'Sin registros', filled: n => `${n} activos` },
+            { key: 'usuarios_registrados', statId: 'stat-usuarios',  labelId: 'stat-usuarios-label',  empty: 'Sin registros', filled: n => `${n} activos`,
+              filter: arr => arr.filter(u => u.correo?.toLowerCase() !== ADMIN_MAESTRO) },
             { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin proyectos', filled: n => `${n} en total` },
             { key: 'servicios_reservados', statId: 'stat-servicios', labelId: 'stat-servicios-label', empty: 'Sin reservas',  filled: n => `${n} este mes` },
             { key: 'tareas_staff',         statId: 'stat-tareas',    labelId: 'stat-tareas-label',    empty: 'Sin tareas',   filled: n => `${n} en total` },
         ];
-        sets.forEach(({ key, statId, labelId, empty, filled }) => {
-            const n = JSON.parse(localStorage.getItem(key) || '[]').length;
+        sets.forEach(({ key, statId, labelId, empty, filled, filter }) => {
+            let arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (filter) arr = filter(arr);
+            const n = arr.length;
             const el = document.getElementById(statId);
             const lb = document.getElementById(labelId);
             if (el) el.textContent = n;
@@ -159,53 +243,89 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
     }
 
-    // ─── TABLA DE USUARIOS ───────────────────────────────────
-    const usuariosTbody = document.getElementById('usuarios-tbody');
+    // ─── CARDS DE USUARIOS ───────────────────────────────────
+    const usuariosContainer = document.getElementById('usuarios-cards-container');
 
     function accionesParaRol(u) {
         if (!esAdmin) return '';
-        const editBtn  = `<button class="btn-primary btn-small btn-edit" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);">\u270f\ufe0f</button>`;
-        const delBtn   = `<button class="btn-danger btn-del">\ud83d\uddd1\ufe0f</button>`;
-        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:4px 8px;font-size:0.7rem;" title="Resetear contrase\u00f1a">\ud83d\udd11</button>`;
+        const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
+        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;" title="Resetear contraseña">🔑 Reset</button>`;
+        const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
         let extra = '';
         if (u.rol === 'Siervo') {
-            extra = `<button class="btn-primary btn-small btn-upgrade" data-role="staff" style="padding:4px 8px;font-size:0.7rem;background:rgba(79,172,254,0.2);border:1px solid var(--primary-color);">\u2191 Staff</button>
-                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">\u2191 Admin</button>`;
+            extra = `<button class="btn-primary btn-small btn-upgrade" data-role="staff" style="padding:5px 10px;font-size:0.75rem;background:rgba(79,172,254,0.2);border:1px solid var(--primary-color);">↑ Staff</button>
+                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">↑ Admin</button>`;
         } else if (u.rol === 'Staff') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo">\u2193 Siervo</button>
-                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:4px 8px;font-size:0.7rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">\u2191 Admin</button>`;
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
+                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">↑ Admin</button>`;
         } else if (u.rol === 'Admin') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="staff">\u2193 Staff</button>`;
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="staff" style="padding:5px 10px;font-size:0.75rem;">↓ Staff</button>`;
         }
-        return `<div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
+        return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
     }
 
-    function crearFilaUsuario(u) {
+    function crearCardUsuario(u) {
         const rolClass = u.rol === 'Admin' ? 'role-admin' : u.rol === 'Staff' ? 'role-staff' : 'role-siervo';
-        const tr = document.createElement('tr');
-        tr.dataset.correo = u.correo;
-        tr.innerHTML = `
-            <td><div class="user-cell">
-                <div class="activity-avatar" style="width:35px;height:35px;font-size:1.1rem;display:flex;">\ud83d\udc64</div>
-                <div><strong>${u.nombre}</strong><br><span class="activity-time">${u.correo}</span></div>
-            </div></td>
-            <td>${u.area}</td>
-            <td><span class="role-badge ${rolClass}">${u.rol}</span></td>
-            <td>${u.telefono || '\u2014'}</td>
-            <td class="text-center">${accionesParaRol(u)}</td>`;
-        return tr;
+        const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
+        const rolColor = u.rol === 'Admin' ? '#ff4757' : u.rol === 'Staff' ? '#4facfe' : '#2ed573';
+        const card = document.createElement('div');
+        card.dataset.correo = u.correo;
+        card.className = 'usuario-card';
+        card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;transition:border-color 0.2s;';
+        card.innerHTML = `
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;">${iniciales}</div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.correo}</div>
+                </div>
+                <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
+            </div>
+            <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;">
+                <span>🎯 ${u.area || '—'}</span>
+                <span>📞 ${u.telefono || '—'}</span>
+            </div>
+            ${accionesParaRol(u)}`;
+        return card;
     }
+
+    const AREA_MAP = {
+        'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
+        'coordinacion': 'Coordinación', 'switchers': 'Switchers', 'streaming': 'Streaming',
+        'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
+        'protocolos': 'Protocolos', 'camaras': 'Cámaras', 'administracion': 'Administración'
+    };
+
+    function normalizarArea(area) {
+        if (!area) return '';
+        return AREA_MAP[area.toLowerCase()] || area;
+    }
+
+    const ADMIN_MAESTRO = 'admin@produccion.com';
+
+    // Migrar áreas legacy en localStorage (minúsculas → formato correcto)
+    (function migrarAreas() {
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        let cambios = false;
+        usuarios.forEach(u => {
+            const normalizada = normalizarArea(u.area);
+            if (normalizada !== u.area) { u.area = normalizada; cambios = true; }
+        });
+        if (cambios) localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+    })();
 
     function cargarTablaUsuarios(filtroRol = '', filtroArea = '') {
-        if (!usuariosTbody) return;
-        usuariosTbody.innerHTML = '';
+        if (!usuariosContainer) return;
+        usuariosContainer.innerHTML = '';
         let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        // Ocultar el admin maestro para todos
+        usuarios = usuarios.filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO);
         if (filtroRol)  usuarios = usuarios.filter(u => u.rol === filtroRol);
-        if (filtroArea) usuarios = usuarios.filter(u => u.area.toLowerCase() === filtroArea.toLowerCase());
+        if (filtroArea) usuarios = usuarios.filter(u => (u.area || '').toLowerCase() === filtroArea.toLowerCase());
         if (usuarios.length === 0) {
-            usuariosTbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);"><div style="font-size:2rem;margin-bottom:10px;">\ud83d\udc64</div><p>No hay usuarios con esos filtros.</p></td></tr>`;
+            usuariosContainer.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);"><div style="font-size:2rem;margin-bottom:10px;">👤</div><p>No hay usuarios con esos filtros.</p></div>`;
         } else {
-            usuarios.forEach(u => usuariosTbody.appendChild(crearFilaUsuario(u)));
+            usuarios.forEach(u => usuariosContainer.appendChild(crearCardUsuario(u)));
         }
     }
     cargarTablaUsuarios();
@@ -216,7 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function poblarSelectAsignado() {
         const sel = document.getElementById('staff-asignado');
         if (!sel) return;
-        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]')
+            .filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO);
         sel.innerHTML = '<option value="" disabled selected>Selecciona un usuario...</option>';
         usuarios.forEach(u => {
             const opt = document.createElement('option');
@@ -227,26 +348,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     poblarSelectAsignado();
 
-    // ─── ACCIONES TABLA USUARIOS ─────────────────────────────
-    const tablaUsuariosAdmin = document.getElementById('tabla-usuarios-admin');
+    // ─── ACCIONES CARDS USUARIOS ─────────────────────────────
+    const tablaUsuariosAdmin = document.getElementById('usuarios-cards-container');
     if (tablaUsuariosAdmin && esAdmin) {
         tablaUsuariosAdmin.addEventListener('click', (e) => {
-            const fila = e.target.closest('tr');
-            if (!fila) return;
-            const correoUsuario = fila.dataset.correo;
-            if (e.target.classList.contains('btn-edit')) { openEditModal(fila); }
+            const card = e.target.closest('[data-correo]');
+            if (!card) return;
+            const correoUsuario = card.dataset.correo;
+            if (e.target.classList.contains('btn-edit')) { openEditModalByCorreo(correoUsuario); }
             if (e.target.classList.contains('btn-reset-pwd')) {
-                const nombre = fila.querySelector('.user-cell strong')?.textContent || correoUsuario;
-                confirmar('Resetear contrase\u00f1a', `\u00bfResetear la contrase\u00f1a de "${nombre}"? Se establecer\u00e1 como "Reset2024!".`, () => {
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
+                confirmar('Resetear contraseña', `¿Resetear la contraseña de "${nombre}"? Se establecerá como "Reset2024!".`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
                     if (idx !== -1) { usuarios[idx].clave = btoa('Reset2024!'); localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
-                    showNotification(`Contrase\u00f1a de "${nombre}" reseteada a "Reset2024!".`);
+                    showNotification(`Contraseña de "${nombre}" reseteada a "Reset2024!".`);
                 });
             }
             if (e.target.classList.contains('btn-del')) {
-                const nombre = fila.querySelector('.user-cell strong')?.textContent || correoUsuario;
-                confirmar('Eliminar usuario', `\u00bfEliminar a "${nombre}"?`, () => {
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
+                confirmar('Eliminar usuario', `¿Eliminar a "${nombre}"?`, () => {
                     let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     usuarios = usuarios.filter(u => u.correo !== correoUsuario);
                     localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
@@ -256,9 +377,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (e.target.classList.contains('btn-upgrade')) {
                 const targetRole = e.target.getAttribute('data-role');
-                const nombre = fila.querySelector('.user-cell strong')?.textContent || '';
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
                 const nomRolVer = targetRole === 'admin' ? 'Admin' : 'Staff';
-                confirmar('Cambiar rol', `\u00bfAscender a "${nombre}" como ${nomRolVer}?`, () => {
+                confirmar('Cambiar rol', `¿Ascender a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
                     if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
@@ -268,9 +389,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (e.target.classList.contains('btn-downgrade-btn')) {
                 const targetRole = e.target.getAttribute('data-role');
-                const nombre = fila.querySelector('.user-cell strong')?.textContent || '';
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
                 const nomRolVer = targetRole === 'staff' ? 'Staff' : 'Siervo';
-                confirmar('Cambiar rol', `\u00bfDegadar a "${nombre}" como ${nomRolVer}?`, () => {
+                confirmar('Cambiar rol', `¿Degradar a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
                     if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
@@ -283,27 +404,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const editModal = document.getElementById('edit-user-modal');
     const editForm  = document.getElementById('edit-user-form');
-    let currentEditRow = null;
+    let currentEditCorreo = null;
 
-    function openEditModal(fila) {
-        currentEditRow = fila;
-        document.getElementById('edit-nombre').value   = fila.querySelector('.user-cell strong')?.textContent || '';
-        document.getElementById('edit-correo').value   = fila.querySelector('.user-cell .activity-time')?.textContent || '';
+    function openEditModalByCorreo(correo) {
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo === correo);
+        if (!u) return;
+        currentEditCorreo = correo;
+        document.getElementById('edit-nombre').value   = u.nombre;
+        document.getElementById('edit-correo').value   = u.correo;
         document.getElementById('edit-password').value = '';
-        const area = fila.cells[1]?.textContent || '';
-        const sel  = document.getElementById('edit-area');
-        if (sel) for (const opt of sel.options) opt.selected = opt.value === area;
+        const sel = document.getElementById('edit-area');
+        if (sel) for (const opt of sel.options) opt.selected = opt.value === u.area;
         editModal.classList.remove('hidden');
     }
 
     editForm?.addEventListener('submit', (e) => {
         e.preventDefault();
-        if (!currentEditRow) return;
+        if (!currentEditCorreo) return;
         const nuevoNombre    = document.getElementById('edit-nombre').value.trim();
         const nuevoCorreo    = document.getElementById('edit-correo').value.trim();
         const nuevaArea      = document.getElementById('edit-area').value;
         const nuevaClave     = document.getElementById('edit-password').value;
-        const correoOriginal = currentEditRow.dataset.correo;
+        const correoOriginal = currentEditCorreo;
         const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         const idx = usuarios.findIndex(u => u.correo === correoOriginal);
         if (idx !== -1) {
@@ -362,6 +485,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ahora >= manana)      return 'Completado';
         if (ahora >= fechaEvento) return 'En curso';
         return 'Planificado';
+    }
+
+    function esProyectoActivo(p) {
+        return calcularEstadoProyecto(p) !== 'Completado';
+    }
+
+    function esTareaHistorica(t) {
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
+        const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
+        return esVencida || esCompletada;
     }
 
     function cuentaRegresiva(p) {
@@ -443,21 +577,17 @@ document.addEventListener('DOMContentLoaded', () => {
         let proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
         const filtroEstado = document.getElementById('filtro-estado-proy')?.value || '';
 
-        // Separar activos (fecha futura o hoy) de historial (fecha pasada = Completado)
-        const ahora = new Date(); ahora.setHours(0,0,0,0);
-        const activos   = proyectos.filter(p => {
-            const estado = calcularEstadoProyecto(p);
-            return estado !== 'Completado';
-        });
-        const historial = proyectos.filter(p => calcularEstadoProyecto(p) === 'Completado');
+        // Separar activos e historial usando el helper esProyectoActivo
+        const activos   = proyectos.filter(p => esProyectoActivo(p));
+        const historial = proyectos.filter(p => !esProyectoActivo(p));
 
-        // Aplicar filtro de estado solo a activos
+        // Aplicar filtro de estado solo a activos; 'Completado' siempre da 0 resultados en el panel activo
         const activosFiltrados = filtroEstado
             ? activos.filter(p => calcularEstadoProyecto(p) === filtroEstado)
             : activos;
 
         if (count) count.textContent = activosFiltrados.length > 0 ? `${activosFiltrados.length} proyecto(s)` : '';
-        if (historialCount) historialCount.textContent = historial.length > 0 ? `${historial.length} evento(s)` : '';
+        if (historialCount) historialCount.textContent = `${historial.length}`;
 
         // ── Render activos ──
         lista.innerHTML = '';
@@ -512,25 +642,26 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // ── Render historial ──
+        // ── Render historial (completados, más reciente primero) ──
         if (historialEl) {
             historialEl.innerHTML = '';
             if (historial.length === 0) {
-                historialEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin eventos completados aún.</p>';
+                historialEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin eventos en el historial.</p>';
             } else {
                 [...historial].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(p => {
                     const realIdx = proyectos.indexOf(p);
                     const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+                    const areasResumen = p.areasData ? p.areasData.map(a => `${a.area}(${a.cantidad})`).join(', ') : (p.areas || '\u2014');
                     const item = document.createElement('div');
                     item.className = 'historial-item';
                     item.innerHTML = `
                         <div class="historial-info">
-                            <span class="historial-nombre">\ud83d\udcc5 ${p.nombre}</span>
-                            <span class="historial-fecha">${fechaFmt}${p.hora ? ' \u00b7 ' + p.hora : ''}</span>
+                            <span class="historial-nombre">${p.nombre} ${estadoBadge('Completado')}</span>
+                            <span class="historial-fecha">\ud83d\udcc5 ${fechaFmt}${p.hora ? ' \u00b7 ' + p.hora : ''}</span>
+                            <span style="font-size:0.75rem;color:var(--text-muted);">\ud83c\udfaf ${areasResumen}</span>
                         </div>
                         <div style="display:flex;gap:6px;">
                             <button class="btn-secondary btn-ver-proy" data-idx="${realIdx}" style="padding:3px 8px;font-size:0.75rem;">Ver</button>
-                            ${esAdmin ? `<button class="btn-danger btn-del-proy" data-idx="${realIdx}" style="padding:3px 8px;font-size:0.75rem;">\ud83d\uddd1\ufe0f</button>` : ''}
                         </div>`;
                     historialEl.appendChild(item);
                 });
@@ -686,23 +817,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!misTareasList) return;
         const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
         const ahora = new Date();
-        const hoy = new Date(); hoy.setHours(0,0,0,0);
         const mes = ahora.getMonth(), anio = ahora.getFullYear();
 
-        // Excluir tareas vencidas O completadas (van al historial)
-        const esVencida    = t => t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
-        const esCompletada = t => t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
-        const vaAlHistorial = t => esVencida(t) || esCompletada(t);
+        // Filtrar por usuario según rol (Admin ve todas, Staff/Siervo solo las propias)
+        let tareas = esAdmin
+            ? todasTareas.filter(t => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })
+            : todasTareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase() && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })());
 
-        const tareasFiltradas = esAdmin
-            ? todasTareas.filter(t => !vaAlHistorial(t) && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })())
-            : todasTareas.filter(t => !vaAlHistorial(t) && t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase() && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })());
+        // Excluir tareas históricas (vencidas o completadas/no-efectuadas)
+        tareas = tareas.filter(t => !esTareaHistorica(t));
+
+        const tareasFiltradas = tareas;
         const tituloEl = document.getElementById('mis-tareas-titulo');
         if (tituloEl) tituloEl.textContent = esAdmin ? 'Todas las Tareas del Mes' : 'Mis Tareas del Mes';
         if (misTareasCount) misTareasCount.textContent = tareasFiltradas.length > 0 ? `${tareasFiltradas.length} tarea(s)` : '';
         misTareasList.innerHTML = '';
         if (tareasFiltradas.length === 0) {
-            misTareasList.innerHTML = `<li><span class="activity-note-line"><span class="note-detail">\ud83d\udccb ${esAdmin ? 'Sin tareas este mes.' : 'No tienes tareas asignadas este mes.'}</span></span></li>`;
+            misTareasList.innerHTML = `<li><span class="activity-note-line"><span class="note-detail">\ud83d\udccb Sin tareas activas.</span></span></li>`;
             return;
         }
 
@@ -848,7 +979,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
                 tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
                 localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                cargarMisTareas(); renderDashboardProyectosYTareas();
+                cargarMisTareas(); renderHistorialTareas(); renderDashboardProyectosYTareas();
+                if (esAdmin) renderDashTareasStaff();
             });
         });
 
@@ -890,39 +1022,50 @@ document.addEventListener('DOMContentLoaded', () => {
         const count = document.getElementById('historial-tareas-count');
         if (!cont) return;
         const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-        const hoy = new Date(); hoy.setHours(0,0,0,0);
 
-        const vencidas = todasTareas.filter(t => {
+        // Filtrar: solo tareas históricas + filtro por rol
+        const historicas = todasTareas.filter(t => {
             const esDelUsuario = esAdmin || (t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
-            if (!esDelUsuario) return false;
-            const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
-            const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
-            return esVencida || esCompletada;
+            return esDelUsuario && esTareaHistorica(t);
         });
 
-        if (count) count.textContent = vencidas.length > 0 ? `${vencidas.length} tarea(s)` : '';
+        // Ordenar de más reciente a más antigua por vencimiento
+        historicas.sort((a, b) => new Date(b.vencimiento) - new Date(a.vencimiento));
+
+        if (count) count.textContent = historicas.length;
         cont.innerHTML = '';
 
-        if (vencidas.length === 0) {
-            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas en historial.</p>';
+        if (historicas.length === 0) {
+            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas en el historial.</p>';
             return;
         }
 
-        vencidas.sort((a, b) => new Date(b.vencimiento) - new Date(a.vencimiento)).forEach(t => {
-            const vencFmt   = new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' });
+        historicas.forEach(t => {
+            const vencFmt   = t.vencimiento
+                ? new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
+                : '—';
             const estadoTarea = t.estadoTarea || 'pendiente';
+            const prioridad   = t.prioridad || '—';
+
+            const prioColor = prioridad === 'Alta' ? '#ff4757' : prioridad === 'Media' ? '#ffa500' : '#2ed573';
+            const estadoColor = estadoTarea === 'completada' ? '#2ed573' : estadoTarea === 'no-efectuado' ? '#ff4757' : '#ffa500';
+
             const item = document.createElement('div');
             item.className = 'historial-item';
             item.style.flexWrap = 'wrap';
             item.innerHTML = `
                 <div class="historial-info">
-                    <span class="historial-nombre">\ud83d\udee0\ufe0f ${t.titulo}</span>
-                    <span class="historial-fecha">${t.asignado} \u00b7 Venci\u00f3: ${vencFmt}</span>
+                    <span class="historial-nombre">🛠️ ${t.titulo}</span>
+                    <span class="historial-fecha">${t.asignado} · Venció: ${vencFmt}</span>
+                    <span style="font-size:0.75rem;margin-top:2px;display:flex;gap:8px;">
+                        <span style="color:${prioColor};">● ${prioridad}</span>
+                        <span style="color:${estadoColor};">● ${estadoTarea}</span>
+                    </span>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;">
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="completada" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'completada' ? 'border-color:#2ed573;color:#2ed573;background:rgba(46,213,115,0.1);' : ''}">\u2713 Terminado</button>
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="pendiente" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'pendiente' ? 'border-color:#ffa500;color:#ffa500;background:rgba(255,165,0,0.1);' : ''}">\u25cb Pendiente</button>
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="no-efectuado" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'no-efectuado' ? 'border-color:#ff4757;color:#ff4757;background:rgba(255,71,87,0.1);' : ''}">\u2715 No efectuado</button>
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="completada" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'completada' ? 'border-color:#2ed573;color:#2ed573;background:rgba(46,213,115,0.1);' : ''}">✓ Terminado</button>
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="pendiente" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'pendiente' ? 'border-color:#ffa500;color:#ffa500;background:rgba(255,165,0,0.1);' : ''}">○ Pendiente</button>
+                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="no-efectuado" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'no-efectuado' ? 'border-color:#ff4757;color:#ff4757;background:rgba(255,71,87,0.1);' : ''}">✕ No efectuado</button>
                 </div>`;
             cont.appendChild(item);
         });
@@ -936,6 +1079,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.setItem('tareas_staff', JSON.stringify(tareas));
                     renderHistorialTareas();
                     cargarMisTareas();
+                    renderDashboardProyectosYTareas();
+                    if (esAdmin) renderDashTareasStaff();
                     showNotification('Estado actualizado.');
                 }
             });
@@ -996,16 +1141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ─── AGENDA MENSUAL ──────────────────────────────────────
-    function calcularOffsetInicial() {
-        const hoy = new Date();
-        const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
-        while (ultimoDia.getDay() !== 0) ultimoDia.setDate(ultimoDia.getDate() - 1);
-        const finUltimoDomingo = new Date(ultimoDia);
-        finUltimoDomingo.setHours(23, 59, 59, 999);
-        return hoy > finUltimoDomingo ? 1 : 0;
-    }
-
-    let agendaMonthOffset = calcularOffsetInicial();
+    let agendaMonthOffset = 0;
 
     function getMonthDays(offset = 0) {
         const today = new Date();
@@ -1211,31 +1347,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     renderReservasSemana();
 
-    // ─── PROGRAMACIÓN EN DASHBOARD (Staff/Siervo) ────────────
+    // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
+    function esPdfExpirado(p) {
+        if (!p.servicio) return false;
+        const SERVICIOS_HORA = {
+            'dom-1': { dia: 0, h: 7,  m: 30 },
+            'dom-2': { dia: 0, h: 11, m: 0  },
+            'dom-3': { dia: 0, h: 13, m: 0  },
+            'dom-4': { dia: 0, h: 19, m: 0  },
+            'mie-1': { dia: 3, h: 19, m: 0  }
+        };
+        const cfg = SERVICIOS_HORA[p.servicio];
+        if (!cfg) return false;
+        const ahora = new Date();
+        const diasAtras = (ahora.getDay() - cfg.dia + 7) % 7;
+        const fechaServicio = new Date(ahora);
+        fechaServicio.setDate(ahora.getDate() - diasAtras);
+        fechaServicio.setHours(cfg.h, cfg.m, 0, 0);
+        return ahora > new Date(fechaServicio.getTime() + EXPIRY_OFFSET_MS);
+    }
+
     function renderDashProgramacion() {
         const panel = document.getElementById('dash-programacion-panel');
         const cont  = document.getElementById('dash-programacion-content');
         if (!panel || !cont) return;
-        if (esAdmin) { panel.style.display = 'none'; return; }
 
-        const pdfs         = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
-        const servicios    = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
-        const misServicios = servicios.filter(s => s.usuario === sesion.nombre);
-
+        const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
         if (pdfs.length === 0) { panel.style.display = 'none'; return; }
-
-        const misKeys = new Set();
-        misServicios.forEach(s => {
-            const partes = s.servicio.split(' a las ');
-            const dia = partes[0] || '', hora = partes[1] || '';
-            if (dia.startsWith('Domingo')) {
-                if (hora === '7:30 AM')  misKeys.add('dom-1');
-                if (hora === '11:00 AM') misKeys.add('dom-2');
-                if (hora === '1:00 PM')  misKeys.add('dom-3');
-                if (hora === '7:00 PM')  misKeys.add('dom-4');
-            }
-            if (dia.startsWith('Mi\u00e9rcoles')) misKeys.add('mie-1');
-        });
 
         const SERVICIOS_LABEL = {
             'dom-1': '\u2600\ufe0f Domingo \u00b7 1er Servicio', 'dom-2': '\u2600\ufe0f Domingo \u00b7 2do Servicio',
@@ -1243,39 +1381,97 @@ document.addEventListener('DOMContentLoaded', () => {
             'mie-1': '\ud83c\udf19 Mi\u00e9rcoles \u00b7 Servicio'
         };
 
-        // Mostrar PDFs de mis servicios + generales
-        const relevantes = pdfs.filter(p => !p.servicio || misKeys.has(p.servicio));
+        // Determinar PDFs relevantes según rol
+        let relevantes;
+        if (esAdmin) {
+            relevantes = pdfs;
+        } else {
+            const servicios    = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            const misServicios = servicios.filter(s => s.usuario === sesion.nombre);
+            const misKeys = new Set();
+            misServicios.forEach(s => {
+                const partes = s.servicio.split(' a las ');
+                const dia = partes[0] || '', hora = partes[1] || '';
+                if (dia.startsWith('Domingo')) {
+                    if (hora === '7:30 AM')  misKeys.add('dom-1');
+                    if (hora === '11:00 AM') misKeys.add('dom-2');
+                    if (hora === '1:00 PM')  misKeys.add('dom-3');
+                    if (hora === '7:00 PM')  misKeys.add('dom-4');
+                }
+                if (dia.startsWith('Mi\u00e9rcoles')) misKeys.add('mie-1');
+            });
+            relevantes = pdfs.filter(p => !p.servicio || misKeys.has(p.servicio));
+        }
+
         if (relevantes.length === 0) { panel.style.display = 'none'; return; }
+
+        const activos   = relevantes.filter(p => !esPdfExpirado(p));
+        const expirados = relevantes.filter(p => esPdfExpirado(p));
+
+        if (activos.length === 0 && expirados.length === 0) { panel.style.display = 'none'; return; }
 
         panel.style.display = '';
         cont.innerHTML = '';
 
-        const grupos = {};
-        relevantes.forEach(p => {
-            const key = p.servicio || 'general';
-            if (!grupos[key]) grupos[key] = [];
-            grupos[key].push(p);
-        });
+        const renderPdfCard = (p) => {
+            const idx = pdfs.indexOf(p);
+            const fechaReal = p.servicio ? getFechasServicio(p.servicio) : '';
+            const card = document.createElement('div');
+            card.className = 'recurso-card';
+            card.style.cursor = 'pointer';
+            card.innerHTML = `
+                <div class="recurso-link btn-abrir-doc-dash" data-idx="${idx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                    <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
+                    <div class="recurso-info">
+                        <span class="recurso-titulo">${p.titulo}</span>
+                        <span class="recurso-url" style="color:var(--secondary-color);font-size:0.75rem;">${p.servicio ? (SERVICIOS_LABEL[p.servicio] || p.servicio) + (fechaReal ? ' \u2014 ' + fechaReal : '') : 'General'}</span>
+                    </div>
+                </div>`;
+            return card;
+        };
 
-        Object.entries(grupos).forEach(([key, items]) => {
-            if (key !== 'general') {
-                const sep = document.createElement('div');
-                sep.className = 'recurso-servicio-sep';
-                sep.textContent = SERVICIOS_LABEL[key] || key;
-                cont.appendChild(sep);
-            }
-            items.forEach(p => {
-                const card = document.createElement('div');
-                card.className = 'recurso-card';
-                card.innerHTML = `
-                    <a href="${p.url}" target="_blank" rel="noopener" class="recurso-link" download="${p.nombreArchivo || p.titulo}">
-                        <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
-                        <div class="recurso-info">
-                            <span class="recurso-titulo">${p.titulo}</span>
-                            <span class="recurso-url">${p.nombreArchivo || ''}</span>
-                        </div>
-                    </a>`;
-                cont.appendChild(card);
+        // Activos agrupados por servicio
+        if (activos.length > 0) {
+            const grupos = {};
+            activos.forEach(p => {
+                const key = p.servicio || 'general';
+                if (!grupos[key]) grupos[key] = [];
+                grupos[key].push(p);
+            });
+            Object.entries(grupos).forEach(([key, items]) => {
+                if (key !== 'general') {
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    const fechaReal = getFechasServicio(key);
+                    sep.textContent = `${SERVICIOS_LABEL[key] || key}${fechaReal ? ' \u2014 ' + fechaReal : ''}`;
+                    cont.appendChild(sep);
+                }
+                items.forEach(p => cont.appendChild(renderPdfCard(p)));
+            });
+        }
+
+        // Historial colapsable de expirados
+        if (expirados.length > 0) {
+            const histDiv = document.createElement('div');
+            histDiv.style.marginTop = '12px';
+            const toggle = document.createElement('div');
+            toggle.className = 'week-separator';
+            toggle.style.cursor = 'pointer';
+            toggle.innerHTML = `<span>\ud83d\udccb Historial (${expirados.length})</span><span class="week-toggle">\u25be</span>`;
+            const histCont = document.createElement('div');
+            histCont.className = 'collapsed';
+            expirados.forEach(p => histCont.appendChild(renderPdfCard(p)));
+            toggle.addEventListener('click', () => histCont.classList.toggle('collapsed'));
+            histDiv.appendChild(toggle);
+            histDiv.appendChild(histCont);
+            cont.appendChild(histDiv);
+        }
+
+        // Click handler para abrir modal
+        cont.querySelectorAll('.btn-abrir-doc-dash').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const p = pdfs[parseInt(btn.dataset.idx)];
+                if (p) abrirDocPreview(p);
             });
         });
     }
@@ -1294,10 +1490,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let proyFiltrados;
         if (esAdmin) {
-            proyFiltrados = proyectos;
+            proyFiltrados = proyectos.filter(p => esProyectoActivo(p));
             if (titProy) titProy.textContent = 'Todos los Proyectos';
         } else {
             proyFiltrados = proyectos.filter(p => {
+                if (!esProyectoActivo(p)) return false;
                 if (p.areasData) return p.areasData.some(a => a.area.toLowerCase() === areaUsuario);
                 if (p.areas)     return p.areas.toLowerCase().includes(areaUsuario);
                 return false;
@@ -1307,10 +1504,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let tareasFiltradas;
         if (esAdmin) {
-            tareasFiltradas = tareas;
-            if (titTarea) titTarea.textContent = 'Todas las Tareas';
+            // Admin: el panel de tareas lo maneja renderDashTareasStaff (agrupado por área)
+            // Solo actualizamos el título, la lista la deja vacía para no duplicar
+            if (titTarea) titTarea.textContent = 'Tareas';
+            listaTarea.innerHTML = '';
+            tareasFiltradas = [];
         } else {
-            tareasFiltradas = tareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
+            tareasFiltradas = tareas.filter(t => !esTareaHistorica(t) && t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
             if (titTarea) titTarea.textContent = 'Mis Tareas';
         }
 
@@ -1330,7 +1530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${proximoServicio}
                 </div></li>`;
             } else {
-                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos creados a\u00fan.</span></li>';
+                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos activos.</span></li>';
             }
         } else {
             [...proyFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach(p => {
@@ -1361,7 +1561,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         listaTarea.innerHTML = '';
         if (tareasFiltradas.length === 0) {
-            listaTarea.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas asignadas.</span></li>';
+            listaTarea.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas activas.</span></li>';
         } else {
             [...tareasFiltradas].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(t => {
                 const fechaFmt = new Date(t.fecha).toLocaleDateString('es', { day: 'numeric', month: 'short' });
@@ -1386,7 +1586,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
                     tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
                     localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                    renderDashboardProyectosYTareas(); cargarMisTareas();
+                    renderDashboardProyectosYTareas(); cargarMisTareas(); renderHistorialTareas();
+                    if (esAdmin) renderDashTareasStaff();
                 });
             });
         }
@@ -1411,10 +1612,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('dash-tareas-panel')?.style && (document.getElementById('dash-tareas-panel').style.display = 'none');
     }
 
-    // Panel Tareas Staff solo para Admin
-    if (!esAdmin) {
-        document.getElementById('dash-tareas-staff-panel')?.style && (document.getElementById('dash-tareas-staff-panel').style.display = 'none');
-    }
+    // Panel de tareas unificado — Admin ve agrupado por área, otros ven sus propias tareas
 
     function renderDashTareasStaff() {
         const cont  = document.getElementById('dash-tareas-staff-list');
@@ -1422,12 +1620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!cont || !esAdmin) return;
         const tareas   = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
         const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-        const hoy = new Date(); hoy.setHours(0,0,0,0);
-        const activas = tareas.filter(t => {
-            const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
-            const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
-            return !esVencida && !esCompletada;
-        });
+        const activas = tareas.filter(t => !esTareaHistorica(t));
         if (count) count.textContent = activas.length > 0 ? `${activas.length} activa(s)` : '';
         cont.innerHTML = '';
         if (activas.length === 0) {
@@ -1748,109 +1941,64 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Lista de videos (sin agrupación por servicio)
+        // Lista de videos — solo cards, sin tabla
         if (listaVideos) {
             listaVideos.innerHTML = '';
             if (videos.length === 0) {
-                listaVideos.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin videos agregados a\u00fan.</p>';
+                listaVideos.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin videos agregados aún.</p>';
             } else {
-                // Tabla para Admin/Líderes
-                if (puedeSubir) {
-                    const tablaWrap = document.createElement('div');
-                    tablaWrap.className = 'recurso-tabla-wrap';
-                    tablaWrap.innerHTML = `<table class="users-table" style="margin-bottom:16px;">
-                        <thead><tr>
-                            <th>#</th>
-                            <th>Título</th>
-                            <th class="text-center">Acciones</th>
-                        </tr></thead>
-                        <tbody id="videos-tabla-body"></tbody>
-                    </table>`;
-                    listaVideos.appendChild(tablaWrap);
-                    const tbody = document.getElementById('videos-tabla-body');
-                    videos.forEach((v, i) => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td style="color:var(--text-muted);font-size:0.8rem;">${i+1}</td>
-                            <td>
-                                <a href="${v.url}" target="_blank" rel="noopener" style="color:var(--primary-color);text-decoration:none;font-size:0.88rem;">
-                                    \ud83c\udfac ${v.titulo}
-                                </a>
-                            </td>
-                            <td class="text-center">
-                                <div style="display:flex;gap:4px;justify-content:center;">
-                                    <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\u270f\ufe0f</button>
-                                    <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\ud83d\uddd1\ufe0f</button>
-                                </div>
-                            </td>`;
-                        tbody.appendChild(tr);
-                    });
-                }
-
-                // Cards para todos (siempre se muestran)
-                videos.forEach(v => {
+                videos.forEach((v, i) => {
                     const card = document.createElement('div');
                     card.className = 'recurso-card';
                     const ytMatch = v.url.match(/(?:v=|youtu\.be\/)([^&?/]+)/);
                     const thumb = ytMatch
                         ? `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="recurso-thumb" alt="">`
-                        : '<div class="recurso-thumb-placeholder">\ud83c\udfac</div>';
+                        : '<div class="recurso-thumb-placeholder">🎬</div>';
                     card.innerHTML = `
-                        <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link">
+                        <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link" style="flex:1;">
                             ${thumb}
                             <div class="recurso-info">
                                 <span class="recurso-titulo">${v.titulo}</span>
                                 <span class="recurso-url">${v.url.length > 50 ? v.url.substring(0,50)+'...' : v.url}</span>
                             </div>
-                        </a>`;
+                        </a>
+                        ${puedeSubir ? `
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                            <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                            <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                        </div>` : ''}`;
                     listaVideos.appendChild(card);
                 });
             }
         }
 
-        // Agrupar PDFs por servicio
+        // Agrupar PDFs por servicio — solo cards, sin tabla
         if (listaPdfs) {
             listaPdfs.innerHTML = '';
             if (pdfs.length === 0) {
-                listaPdfs.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin cursos o PDFs agregados a\u00fan.</p>';
+                listaPdfs.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin cursos o PDFs agregados aún.</p>';
             } else {
-                // Tabla/lista de todos los archivos (para Admin/Líderes)
-                if (puedeSubir) {
-                    const tablaWrap = document.createElement('div');
-                    tablaWrap.className = 'recurso-tabla-wrap';
-                    tablaWrap.innerHTML = `<table class="users-table" style="margin-bottom:16px;">
-                        <thead><tr>
-                            <th>#</th>
-                            <th>Título</th>
-                            <th>Servicio</th>
-                            <th class="text-center">Acciones</th>
-                        </tr></thead>
-                        <tbody id="pdfs-tabla-body"></tbody>
-                    </table>`;
-                    listaPdfs.appendChild(tablaWrap);
-                    const tbody = document.getElementById('pdfs-tabla-body');
-                    const SERVICIOS_MAP = { 'dom-1': 'Dom 1er', 'dom-2': 'Dom 2do', 'dom-3': 'Dom 3er', 'dom-4': 'Dom 4to', 'mie-1': 'Mié' };
-                    pdfs.forEach((p, i) => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td style="color:var(--text-muted);font-size:0.8rem;">${i+1}</td>
-                            <td>
-                                <a href="${p.url}" target="_blank" rel="noopener" download="${p.nombreArchivo||p.titulo}" style="color:var(--primary-color);text-decoration:none;font-size:0.88rem;">
-                                    \ud83d\udcce ${p.titulo}
-                                </a>
-                            </td>
-                            <td style="font-size:0.8rem;color:var(--text-muted);">${SERVICIOS_MAP[p.servicio] || 'General'}</td>
-                            <td class="text-center">
-                                <div style="display:flex;gap:4px;justify-content:center;">
-                                    <button class="btn-secondary btn-edit-recurso-pdf" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\u270f\ufe0f</button>
-                                    <button class="btn-danger recurso-del" data-tipo="pdfs" data-idx="${i}" style="padding:3px 8px;font-size:0.7rem;">\ud83d\uddd1\ufe0f</button>
-                                </div>
-                            </td>`;
-                        tbody.appendChild(tr);
-                    });
-                }
+                const renderPdfCard = (p, realIdx) => {
+                    const card = document.createElement('div');
+                    card.className = 'recurso-card';
+                    card.style.cursor = 'pointer';
+                    const subtitulo = p.nombreArchivo || (p.url.length > 50 ? p.url.substring(0,50)+'...' : p.url);
+                    card.innerHTML = `
+                        <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                            <div class="recurso-thumb-placeholder">📄</div>
+                            <div class="recurso-info">
+                                <span class="recurso-titulo">${p.titulo}</span>
+                                <span class="recurso-url">${subtitulo}</span>
+                            </div>
+                        </div>
+                        ${puedeSubir ? `
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                            <button class="btn-secondary btn-edit-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                            <button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                        </div>` : ''}`;
+                    return card;
+                };
 
-                // Vista de cards agrupadas por servicio (para todos)
                 SERVICIOS_SEMANA.forEach(srv => {
                     const srvPdfs = pdfs.filter(p => p.servicio === srv.value);
                     if (srvPdfs.length === 0) return;
@@ -1859,47 +2007,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     sep.className = 'recurso-servicio-sep';
                     sep.textContent = `${srv.label}${fechaReal ? ' — ' + fechaReal : ''}`;
                     listaPdfs.appendChild(sep);
-                    srvPdfs.forEach(p => {
-                        const realIdx = pdfs.indexOf(p);
-                        const card = document.createElement('div');
-                        card.className = 'recurso-card';
-                        card.style.cursor = 'pointer';
-                        const icono = '\ud83d\udcc4';
-                        const subtitulo = p.nombreArchivo || (p.url.length > 50 ? p.url.substring(0,50)+'...' : p.url);
-                        card.innerHTML = `
-                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
-                                <div class="recurso-thumb-placeholder">${icono}</div>
-                                <div class="recurso-info">
-                                    <span class="recurso-titulo">${p.titulo}</span>
-                                    <span class="recurso-url">${subtitulo}</span>
-                                </div>
-                            </div>
-                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">\ud83d\uddd1\ufe0f</button>` : ''}`;
-                        listaPdfs.appendChild(card);
-                    });
+                    srvPdfs.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
                 });
+
                 const sinServicio = pdfs.filter(p => !p.servicio);
                 if (sinServicio.length > 0) {
                     const sep = document.createElement('div');
                     sep.className = 'recurso-servicio-sep';
                     sep.textContent = 'General';
                     listaPdfs.appendChild(sep);
-                    sinServicio.forEach(p => {
-                        const realIdx = pdfs.indexOf(p);
-                        const card = document.createElement('div');
-                        card.className = 'recurso-card';
-                        card.style.cursor = 'pointer';
-                        card.innerHTML = `
-                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
-                                <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
-                                <div class="recurso-info">
-                                    <span class="recurso-titulo">${p.titulo}</span>
-                                    <span class="recurso-url">${p.nombreArchivo || ''}</span>
-                                </div>
-                            </div>
-                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">\ud83d\uddd1\ufe0f</button>` : ''}`;
-                        listaPdfs.appendChild(card);
-                    });
+                    sinServicio.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
                 }
             }
         }
@@ -2042,6 +2159,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('recursos_pdfs', JSON.stringify(pdfs));
             e.target.reset();
             renderRecursos();
+            renderDashProgramacion();
             showNotification('Archivo subido correctamente.');
         };
         reader.readAsDataURL(file);

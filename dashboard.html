@@ -127,7 +127,7 @@
                 <!-- Panel programación por servicio (Staff/Siervo) -->
                 <div class="details-panel glass-panel" id="dash-programacion-panel" style="margin-bottom:0;display:none;">
                     <div class="panel-heading">
-                        <h3>📄 Programación de mis Servicios</h3>
+                        <h3>📄 Programación</h3>
                     </div>
                     <div id="dash-programacion-content"></div>
                 </div>
@@ -141,23 +141,16 @@
                             <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos.</span></li>
                         </ul>
                     </div>
+                    <!-- Panel unificado de tareas -->
                     <div class="details-panel glass-panel" id="dash-tareas-panel">
                         <div class="panel-heading">
                             <h3 id="dash-tareas-titulo">Tareas</h3>
+                            <span id="dash-tareas-staff-count" style="color:var(--secondary-color);font-size:0.82rem;"></span>
                         </div>
-                        <ul class="activity-list" id="dash-tareas-list">
-                            <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas.</span></li>
-                        </ul>
+                        <div id="dash-tareas-staff-list"></div>
+                        <ul class="activity-list" id="dash-tareas-list" style="margin-top:0;"></ul>
                     </div>
                 </section>
-                <!-- Panel Tareas Staff (solo Admin) -->
-                <div class="details-panel glass-panel" id="dash-tareas-staff-panel" style="margin-top:0;">
-                    <div class="panel-heading">
-                        <h3>Tareas Staff</h3>
-                        <span id="dash-tareas-staff-count" style="color:var(--secondary-color);font-size:0.82rem;"></span>
-                    </div>
-                    <div id="dash-tareas-staff-list"></div>
-                </div>
             </div>
 
             <!-- VISTA: USUARIOS -->
@@ -189,20 +182,7 @@
                             </select>
                         </div>
                     </div>
-                    <div class="table-container">
-                        <table class="users-table" id="tabla-usuarios-admin">
-                            <thead>
-                                <tr>
-                                    <th>Nombre Completo</th>
-                                    <th>Área</th>
-                                    <th>Rol</th>
-                                    <th>Teléfono</th>
-                                    <th class="text-center">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="usuarios-tbody"></tbody>
-                        </table>
-                    </div>
+                    <div id="usuarios-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:8px;"></div>
                 </div>
             </div>
 
@@ -361,7 +341,6 @@
                         <h2>📄 Programación</h2>
                         <span id="recursos-pdfs-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
                     </div>
-                    <div id="recursos-pdfs-lista" style="margin-bottom:12px;"></div>
                     <div id="recursos-add-pdf-panel">
                         <form id="form-add-pdf" class="custom-form" style="margin-top:8px;">
                             <div class="form-row">
@@ -388,13 +367,13 @@
                             <button type="submit" class="btn-primary" style="max-width:160px;margin-top:10px;font-size:0.85rem;">+ Subir</button>
                         </form>
                     </div>
+                    <div id="recursos-pdfs-lista" style="margin-top:16px;"></div>
                 </div>
                 <div id="recursos-videos-section" class="details-panel glass-panel">
                     <div class="panel-heading">
                         <h2>🎬 Videos</h2>
                         <span id="recursos-videos-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
                     </div>
-                    <div id="recursos-videos-lista" style="margin-bottom:12px;"></div>
                     <div id="recursos-add-video-panel">
                         <form id="form-add-video" class="custom-form" style="margin-top:8px;">
                             <div class="form-row">
@@ -410,6 +389,7 @@
                             <button type="submit" class="btn-primary" style="max-width:160px;margin-top:4px;font-size:0.85rem;">+ Agregar</button>
                         </form>
                     </div>
+                    <div id="recursos-videos-lista" style="margin-top:16px;"></div>
                 </div>
             </div>
 
@@ -693,6 +673,6 @@
         </div>
     </div>
 
-    <script src="dashboard.js"></script>
+    <script src="dashboard.js" type="module"></script>
 </body>
 </html>
