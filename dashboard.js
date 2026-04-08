@@ -63,6 +63,30 @@ async function sincronizarDesdeFirebase() {
 // Variable global para el offset de la agenda
 let agendaMonthOffset = 0;
 
+// Constantes globales
+const ADMIN_MAESTRO = 'admin@produccion.com';
+const EXPIRY_OFFSET_MS = 45 * 60 * 1000;
+
+const AREA_MAP = {
+    'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
+    'coordinacion': 'Coordinación', 'switchers': 'Switchers', 'streaming': 'Streaming',
+    'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
+    'protocolos': 'Protocolos', 'camaras': 'Cámaras', 'administracion': 'Administración'
+};
+
+function normalizarArea(area) {
+    if (!area) return '';
+    return AREA_MAP[area.toLowerCase()] || area;
+}
+
+const SERVICIOS_SEMANA = [
+    { label: '☀️ Domingo · 1er Servicio (7:30 AM)',  value: 'dom-1' },
+    { label: '☀️ Domingo · 2do Servicio (11:00 AM)', value: 'dom-2' },
+    { label: '☀️ Domingo · 3er Servicio (1:00 PM)',  value: 'dom-3' },
+    { label: '☀️ Domingo · 4to Servicio (7:00 PM)',  value: 'dom-4' },
+    { label: '🌙 Miércoles · Servicio (7:00 PM)',    value: 'mie-1' },
+];
+
 const showNotification = (message, type = 'success') => {
     let container = document.getElementById('notification-container');
     if (!container) {
@@ -293,20 +317,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             ${accionesParaRol(u)}`;
         return card;
     }
-
-    const AREA_MAP = {
-        'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
-        'coordinacion': 'Coordinación', 'switchers': 'Switchers', 'streaming': 'Streaming',
-        'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
-        'protocolos': 'Protocolos', 'camaras': 'Cámaras', 'administracion': 'Administración'
-    };
-
-    function normalizarArea(area) {
-        if (!area) return '';
-        return AREA_MAP[area.toLowerCase()] || area;
-    }
-
-    const ADMIN_MAESTRO = 'admin@produccion.com';
 
     // Migrar áreas legacy en localStorage (minúsculas → formato correcto)
     (function migrarAreas() {
@@ -1252,7 +1262,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // ─── LIMPIEZA DE SERVICIOS EXPIRADOS ─────────────────────
-    const EXPIRY_OFFSET_MS = 45 * 60 * 1000;
 
     function servicioToDate(servicioStr) {
         const horaMap = { '1er Servicio': '7:30 AM', '2do Servicio': '11:00 AM', '3er Servicio': '1:00 PM', '4to Servicio': '7:00 PM', '7:00 PM': '7:00 PM' };
@@ -1870,13 +1879,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     cargarPerfil();
 
     // ─── RECURSOS ────────────────────────────────────────────
-    const SERVICIOS_SEMANA = [
-        { label: '\u2600\ufe0f Domingo \u00b7 1er Servicio (7:30 AM)',  value: 'dom-1' },
-        { label: '\u2600\ufe0f Domingo \u00b7 2do Servicio (11:00 AM)', value: 'dom-2' },
-        { label: '\u2600\ufe0f Domingo \u00b7 3er Servicio (1:00 PM)',  value: 'dom-3' },
-        { label: '\u2600\ufe0f Domingo \u00b7 4to Servicio (7:00 PM)',  value: 'dom-4' },
-        { label: '\ud83c\udf19 Mi\u00e9rcoles \u00b7 Servicio (7:00 PM)', value: 'mie-1' },
-    ];
 
     function getFechasServicio(servicioKey) {
         const hoy = new Date();
