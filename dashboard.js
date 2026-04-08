@@ -11,6 +11,29 @@ const SYNC_KEYS = [
     'comentarios','recursos_pdfs','recursos_videos','lideres_area'
 ];
 
+// Parchear localStorage.setItem para sincronizar a Firebase automáticamente
+const _lsSetItem = localStorage.setItem.bind(localStorage);
+localStorage.setItem = function(key, value) {
+    _lsSetItem(key, value);
+    if (!SYNC_KEYS.includes(key)) return;
+    try {
+        const data = JSON.parse(value);
+        const writeMap = {
+            'usuarios_registrados': () => DB.setUsuarios(data),
+            'proyectos_creados':    () => DB.setProyectos(data),
+            'tareas_staff':         () => DB.setTareas(data),
+            'servicios_reservados': () => DB.setServicios(data),
+            'asistencias_proyectos':() => DB.setAsistencias(data),
+            'aceptaciones_tareas':  () => DB.setAceptaciones(data),
+            'comentarios':          () => DB.setComentarios(data),
+            'recursos_pdfs':        () => DB.setPdfs(data),
+            'recursos_videos':      () => DB.setVideos(data),
+            'lideres_area':         () => DB.setLideres(data),
+        };
+        if (writeMap[key]) writeMap[key]().catch(e => console.warn('Firebase write error:', e));
+    } catch(e) {}
+};
+
 async function sincronizarDesdeFirebase() {
     await Promise.all(SYNC_KEYS.map(async key => {
         try {
@@ -36,29 +59,6 @@ async function sincronizarDesdeFirebase() {
         } catch(e) { console.warn('Sync error for', key, e); }
     }));
 }
-
-// Parchear localStorage.setItem para sincronizar a Firebase automáticamente
-const _lsSetItem = localStorage.setItem.bind(localStorage);
-localStorage.setItem = function(key, value) {
-    _lsSetItem(key, value);
-    if (!SYNC_KEYS.includes(key)) return;
-    try {
-        const data = JSON.parse(value);
-        const writeMap = {
-            'usuarios_registrados': () => DB.setUsuarios(data),
-            'proyectos_creados':    () => DB.setProyectos(data),
-            'tareas_staff':         () => DB.setTareas(data),
-            'servicios_reservados': () => DB.setServicios(data),
-            'asistencias_proyectos':() => DB.setAsistencias(data),
-            'aceptaciones_tareas':  () => DB.setAceptaciones(data),
-            'comentarios':          () => DB.setComentarios(data),
-            'recursos_pdfs':        () => DB.setPdfs(data),
-            'recursos_videos':      () => DB.setVideos(data),
-            'lideres_area':         () => DB.setLideres(data),
-        };
-        if (writeMap[key]) writeMap[key]().catch(e => console.warn('Firebase write error:', e));
-    } catch(e) {}
-};
 
 const showNotification = (message, type = 'success') => {
     let container = document.getElementById('notification-container');
