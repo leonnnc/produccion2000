@@ -171,7 +171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const target = document.getElementById(targetId);
         if (target) { target.classList.remove('hidden-view'); target.classList.add('active-view'); }
         // Regenerar agenda al navegar a ella
-        if (targetId === 'agenda-view') generateAgendaMonth();
+        if (targetId === 'agenda-view') setTimeout(() => generateAgendaMonth(), 100);
     }
 
     navLinks.forEach(link => {
@@ -950,16 +950,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 groupUl.appendChild(li);
             });
-        });
-        // Aceptación de tareas (no-Admin)
-        groupUl.querySelectorAll('.btn-aceptar-tarea').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
-                aceptaciones[btn.dataset.fecha] = btn.dataset.resp;
-                localStorage.setItem('aceptaciones_tareas', JSON.stringify(aceptaciones));
-                const msg = btn.dataset.resp === 'acepta' ? '\u2713 Tarea aceptada' : '\u2715 Respuesta registrada';
-                showNotification(msg);
-                cargarMisTareas();
+
+            // Aceptación de tareas (no-Admin) — dentro del forEach para tener groupUl en scope
+            groupUl.querySelectorAll('.btn-aceptar-tarea').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
+                    aceptaciones[btn.dataset.fecha] = btn.dataset.resp;
+                    localStorage.setItem('aceptaciones_tareas', JSON.stringify(aceptaciones));
+                    const msg = btn.dataset.resp === 'acepta' ? '\u2713 Tarea aceptada' : '\u2715 Respuesta registrada';
+                    showNotification(msg);
+                    cargarMisTareas();
+                });
             });
         });
 
@@ -1167,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (titleEl) titleEl.textContent = `Agenda \u2014 ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
         if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participar\u00e1s este mes';
         const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-        const sesionActual = sesion || JSON.parse(sessionStorage.getItem('sesion_activa') || 'null');
+        const sesionActual = JSON.parse(sessionStorage.getItem('sesion_activa') || 'null');
         const userName = sesionActual?.nombre || '';
         const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
