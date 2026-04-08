@@ -1413,13 +1413,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const fechaReal = p.servicio ? getFechasServicio(p.servicio) : '';
             const card = document.createElement('div');
             card.className = 'recurso-card';
-            card.style.cursor = 'pointer';
+            card.style.cssText = 'cursor:pointer;flex-direction:column;align-items:flex-start;padding:12px;gap:6px;';
             card.innerHTML = `
-                <div class="recurso-link btn-abrir-doc-dash" data-idx="${idx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
-                    <div class="recurso-thumb-placeholder">\ud83d\udcc4</div>
-                    <div class="recurso-info">
-                        <span class="recurso-titulo">${p.titulo}</span>
-                        <span class="recurso-url" style="color:var(--secondary-color);font-size:0.75rem;">${p.servicio ? (SERVICIOS_LABEL[p.servicio] || p.servicio) + (fechaReal ? ' \u2014 ' + fechaReal : '') : 'General'}</span>
+                <div class="btn-abrir-doc-dash" data-idx="${idx}" style="cursor:pointer;width:100%;display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <div style="font-size:1.8rem;flex-shrink:0;">📄</div>
+                        <div style="flex:1;min-width:0;">
+                            <div class="recurso-titulo" style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.titulo}</div>
+                            <div style="color:var(--secondary-color);font-size:0.72rem;margin-top:2px;">${p.servicio ? (SERVICIOS_LABEL[p.servicio] || p.servicio) + (fechaReal ? ' — ' + fechaReal : '') : 'General'}</div>
+                        </div>
                     </div>
                 </div>`;
             return card;
@@ -1441,7 +1443,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     sep.textContent = `${SERVICIOS_LABEL[key] || key}${fechaReal ? ' \u2014 ' + fechaReal : ''}`;
                     cont.appendChild(sep);
                 }
-                items.forEach(p => cont.appendChild(renderPdfCard(p)));
+                const grid = document.createElement('div');
+                grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:8px;';
+                items.forEach(p => grid.appendChild(renderPdfCard(p)));
+                cont.appendChild(grid);
             });
         }
 
@@ -1455,6 +1460,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             toggle.innerHTML = `<span>\ud83d\udccb Historial (${expirados.length})</span><span class="week-toggle">\u25be</span>`;
             const histCont = document.createElement('div');
             histCont.className = 'collapsed';
+            histCont.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:8px;';
             expirados.forEach(p => histCont.appendChild(renderPdfCard(p)));
             toggle.addEventListener('click', () => histCont.classList.toggle('collapsed'));
             histDiv.appendChild(toggle);
