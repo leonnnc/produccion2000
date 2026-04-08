@@ -170,6 +170,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         viewSections.forEach(v => { v.classList.remove('active-view'); v.classList.add('hidden-view'); });
         const target = document.getElementById(targetId);
         if (target) { target.classList.remove('hidden-view'); target.classList.add('active-view'); }
+        // Regenerar agenda al navegar a ella
+        if (targetId === 'agenda-view') generateAgendaMonth();
     }
 
     navLinks.forEach(link => {
@@ -2170,6 +2172,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (link.getAttribute('data-target') === 'recursos-view') {
             link.addEventListener('click', () => setTimeout(renderRecursos, 50));
         }
+        // Regenerar agenda al entrar para tener reservas actualizadas
+        if (link.getAttribute('data-target') === 'agenda-view') {
+            link.addEventListener('click', () => setTimeout(generateAgendaMonth, 50));
+        }
     });
     renderRecursos(); // Cargar al inicio también
 
@@ -2217,6 +2223,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const isLight = document.body.classList.contains('light-mode');
         localStorage.setItem('tema', isLight ? 'light' : 'dark');
         toggleTheme.textContent = isLight ? '\ud83c\udf19 Modo Oscuro' : '\u2600\ufe0f Modo Claro';
+    });
+
+    // ─── LISTENERS FIREBASE EN TIEMPO REAL ───────────────────
+    // Se registran al final para que todas las funciones estén definidas
+    DB.listenUsuarios(data => { _lsSetItem('usuarios_registrados', JSON.stringify(data)); });
+    DB.listenProyectos(data => {
+        _lsSetItem('proyectos_creados', JSON.stringify(data));
+        renderProyectos(); renderDashboardProyectosYTareas();
+    });
+    DB.listenTareas(data => {
+        _lsSetItem('tareas_staff', JSON.stringify(data));
+        cargarMisTareas(); renderHistorialTareas();
+        renderDashboardProyectosYTareas(); renderDashTareasStaff();
+    });
+    DB.listenServicios(data => {
+        _lsSetItem('servicios_reservados', JSON.stringify(data));
+        renderReservasSemana(); actualizarEstadisticas();
+        generateAgendaMonth();
+    });
+    DB.listenPdfs(data => {
+        _lsSetItem('recursos_pdfs', JSON.stringify(data));
+        renderDashProgramacion(); renderRecursos();
     });
 
 }); // fin DOMContentLoaded
