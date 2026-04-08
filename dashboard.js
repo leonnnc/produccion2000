@@ -1874,6 +1874,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         return '';
     }
 
+    function poblarSelectorServicios() {
+        const sel = document.getElementById('pdf-servicio');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">General</option>';
+        // Miércoles de esta semana
+        const fechaMie = getFechasServicio('mie-1');
+        if (fechaMie) {
+            const opt = document.createElement('option');
+            opt.value = 'mie-1';
+            opt.textContent = `🌙 Miércoles · Servicio — ${fechaMie}`;
+            sel.appendChild(opt);
+        }
+        // Domingo próximo — 4 servicios
+        const serviciosDom = [
+            { key: 'dom-1', label: '☀️ Domingo · 1er Servicio' },
+            { key: 'dom-2', label: '☀️ Domingo · 2do Servicio' },
+            { key: 'dom-3', label: '☀️ Domingo · 3er Servicio' },
+            { key: 'dom-4', label: '☀️ Domingo · 4to Servicio' },
+        ];
+        serviciosDom.forEach(({ key, label }) => {
+            const fecha = getFechasServicio(key);
+            if (fecha) {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = `${label} — ${fecha}`;
+                sel.appendChild(opt);
+            }
+        });
+    }
+
     function abrirDocPreview(p) {
         const modal   = document.getElementById('doc-preview-modal');
         const titulo  = document.getElementById('doc-preview-titulo');
@@ -2156,7 +2186,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Cargar recursos al entrar a la vista y al inicio
     navLinks.forEach(link => {
         if (link.getAttribute('data-target') === 'recursos-view') {
-            link.addEventListener('click', () => setTimeout(renderRecursos, 50));
+            link.addEventListener('click', () => { setTimeout(renderRecursos, 50); poblarSelectorServicios(); });
         }
         // Regenerar agenda al entrar para tener reservas actualizadas
         if (link.getAttribute('data-target') === 'agenda-view') {
@@ -2164,6 +2194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     renderRecursos(); // Cargar al inicio también
+    poblarSelectorServicios(); // Poblar selector con fechas reales
 
     // ─── AJUSTES: LIDERES DE AREA (solo Admin) ───────────────
     const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Switchers','Streaming','Luces','Diseño','Edición','Protocolos','Cámaras'];
