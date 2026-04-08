@@ -129,26 +129,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sesion    = sesionRaw ? JSON.parse(sesionRaw) : null;
     if (!sesion) { window.location.replace('index.html'); return; }
 
-    // Escuchar cambios en tiempo real desde otros dispositivos
-    DB.listenUsuarios(data => { _lsSetItem('usuarios_registrados', JSON.stringify(data)); });
-    DB.listenProyectos(data => {
-        _lsSetItem('proyectos_creados', JSON.stringify(data));
-        renderProyectos?.(); renderDashboardProyectosYTareas?.();
-    });
-    DB.listenTareas(data => {
-        _lsSetItem('tareas_staff', JSON.stringify(data));
-        cargarMisTareas?.(); renderHistorialTareas?.();
-        renderDashboardProyectosYTareas?.(); renderDashTareasStaff?.();
-    });
-    DB.listenServicios(data => {
-        _lsSetItem('servicios_reservados', JSON.stringify(data));
-        renderReservasSemana?.(); actualizarEstadisticas?.();
-    });
-    DB.listenPdfs(data => {
-        _lsSetItem('recursos_pdfs', JSON.stringify(data));
-        renderDashProgramacion?.(); renderRecursos?.();
-    });
-
     const displayName = { textContent: sesion.nombre }; // referencia virtual
     const displayRole = document.querySelector('.user-role');
     if (displayRole) displayRole.textContent = sesion.rol === 'Admin' ? 'Administrador' : sesion.rol === 'Staff' ? 'Staff' : 'Siervo';
