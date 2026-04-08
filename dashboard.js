@@ -1167,7 +1167,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (titleEl) titleEl.textContent = `Agenda \u2014 ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
         if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participar\u00e1s este mes';
         const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-        const userName = sesion.nombre;
+        const sesionActual = sesion || JSON.parse(sessionStorage.getItem('sesion_activa') || 'null');
+        const userName = sesionActual?.nombre || '';
         const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
 
@@ -1208,7 +1209,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         container.innerHTML = html;
         const btnVerReservas = document.getElementById('btn-ver-reservas');
-        if (btnVerReservas) btnVerReservas.style.display = esAdmin ? 'inline-block' : 'none';
+        if (btnVerReservas) btnVerReservas.style.display = (sesionActual?.rol === 'Admin') ? 'inline-block' : 'none';
     }
     generateAgendaMonth();
 
@@ -2240,7 +2241,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     DB.listenServicios(data => {
         _lsSetItem('servicios_reservados', JSON.stringify(data));
         renderReservasSemana(); actualizarEstadisticas();
-        generateAgendaMonth();
     });
     DB.listenPdfs(data => {
         _lsSetItem('recursos_pdfs', JSON.stringify(data));
