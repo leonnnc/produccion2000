@@ -60,6 +60,9 @@ async function sincronizarDesdeFirebase() {
     }));
 }
 
+// Variable global para el offset de la agenda
+let agendaMonthOffset = 0;
+
 const showNotification = (message, type = 'success') => {
     let container = document.getElementById('notification-container');
     if (!container) {
@@ -1144,7 +1147,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // ─── AGENDA MENSUAL ──────────────────────────────────────
-    let agendaMonthOffset = 0;
 
     function getMonthDays(offset = 0) {
         const today = new Date();
