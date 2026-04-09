@@ -600,62 +600,35 @@ body {
 }
 
 .widget-card {
-    padding: 8px 12px !important;
-    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    border-radius: 10px !important;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-direction: row !important;
 }
 
 .widget-icon { display: none; }
 
-.widget-info h3 {
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-bottom: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.widget-number { display: none; }
-
-.trend {
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-
-/* Colores de Widgets */
-.primary-bg {
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-}
-
-.purple-bg {
-    background: linear-gradient(135deg, #aa4b6b, #6b6b83, #3b8d99);
-}
-
-.success-bg {
-    background: linear-gradient(135deg, #11998e, #38ef7d);
-}
-
-.warning-bg {
-    background: linear-gradient(135deg, #f2994a, #f2c94c);
-}
-
 .widget-info {
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .widget-info h3 {
-    font-size: 0.72rem;
+    font-size: 0.78rem;
     font-weight: 500;
     color: var(--text-muted);
     margin-bottom: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex-shrink: 0;
 }
 
 .widget-number { display: none; }
@@ -663,6 +636,7 @@ body {
 .trend {
     font-size: 0.82rem;
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .trend.positive {

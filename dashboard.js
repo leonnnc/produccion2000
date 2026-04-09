@@ -238,16 +238,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         bienvenidaContent.innerHTML = `
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:white;flex-shrink:0;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
+                <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);">
                     ${sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase()}
                 </div>
-                <div style="flex:1;min-width:0;">
-                    <span style="font-size:0.95rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span></span>
-                    <span style="font-size:0.78rem;color:var(--text-muted);margin-left:8px;">${sesion.area || ''} · <span style="color:${rolColor};font-weight:600;">${rolLabel}</span></span>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                <div>
+                    <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
+                        ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                    </div>
                 </div>
             </div>`;
     }
