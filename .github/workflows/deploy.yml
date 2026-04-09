@@ -19,7 +19,7 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          server-dir: /pro.aplicatodos.com/
+          server-dir: /pro.aplicatodos.com/pro.aplicatodos.com/
           dangerous-clean-slate: true
           exclude: |
             **/.git*
