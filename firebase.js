@@ -22,7 +22,6 @@ const db  = getDatabase(app);
 const KEYS = {
     usuarios:    'usuarios_registrados',
     proyectos:   'proyectos_creados',
-    tareas:      'tareas_staff',
     servicios:   'servicios_reservados',
     asistencias: 'asistencias_proyectos',
     aceptaciones:'aceptaciones_tareas',
@@ -81,11 +80,6 @@ export const DB = {
     getProyectos:    () => getCollection(KEYS.proyectos),
     setProyectos:    (arr) => setCollection(KEYS.proyectos, arr),
     listenProyectos: (cb) => listenCollection(KEYS.proyectos, cb),
-
-    // Tareas
-    getTareas:    () => getCollection(KEYS.tareas),
-    setTareas:    (arr) => setCollection(KEYS.tareas, arr),
-    listenTareas: (cb) => listenCollection(KEYS.tareas, cb),
 
     // Servicios reservados
     getServicios:    () => getCollection(KEYS.servicios),

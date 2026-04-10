@@ -6,7 +6,7 @@ import { DB } from './firebase.js';
 // ─── CAPA DE COMPATIBILIDAD localStorage ↔ Firebase ─────
 // Sincroniza Firebase → localStorage al cargar, y localStorage → Firebase al escribir
 const SYNC_KEYS = [
-    'usuarios_registrados','proyectos_creados','tareas_staff',
+    'usuarios_registrados','proyectos_creados',
     'servicios_reservados','asistencias_proyectos','aceptaciones_tareas',
     'comentarios','recursos_pdfs','recursos_videos','lideres_area'
 ];
@@ -21,7 +21,6 @@ localStorage.setItem = function(key, value) {
         const writeMap = {
             'usuarios_registrados': () => DB.setUsuarios(data),
             'proyectos_creados':    () => DB.setProyectos(data),
-            'tareas_staff':         () => DB.setTareas(data),
             'servicios_reservados': () => DB.setServicios(data),
             'asistencias_proyectos':() => DB.setAsistencias(data),
             'aceptaciones_tareas':  () => DB.setAceptaciones(data),
@@ -41,7 +40,6 @@ async function sincronizarDesdeFirebase() {
             const methodMap = {
                 'usuarios_registrados':  () => DB.getUsuarios(),
                 'proyectos_creados':     () => DB.getProyectos(),
-                'tareas_staff':          () => DB.getTareas(),
                 'servicios_reservados':  () => DB.getServicios(),
                 'asistencias_proyectos': () => DB.getAsistencias(),
                 'aceptaciones_tareas':   () => DB.getAceptaciones(),
@@ -144,8 +142,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const esAdmin = sesion.rol === 'Admin';
 
     const permitido = {
-        'Admin':  ['dashboard-view','usuarios-view','proyectos-view','staff-view','agenda-view','recursos-view','ajustes-view'],
-        'Staff':  ['dashboard-view','staff-view','agenda-view','recursos-view'],
+        'Admin':  ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
+        'Staff':  ['dashboard-view','agenda-view','recursos-view'],
         'Siervo': ['dashboard-view','agenda-view','recursos-view']
     };
     const acceso = permitido[sesion.rol] || permitido['Siervo'];
@@ -202,7 +200,6 @@ document.addEventListener('DOMContentLoaded', async () => {
               filter: arr => arr.filter(u => u.correo?.toLowerCase() !== ADMIN_MAESTRO) },
             { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin proyectos', filled: n => `${n} en total` },
             { key: 'servicios_reservados', statId: 'stat-servicios', labelId: 'stat-servicios-label', empty: 'Sin reservas',  filled: n => `${n} este mes` },
-            { key: 'tareas_staff',         statId: 'stat-tareas',    labelId: 'stat-tareas-label',    empty: 'Sin tareas',   filled: n => `${n} en total` },
         ];
         sets.forEach(({ key, statId, labelId, empty, filled, filter }) => {
             let arr = JSON.parse(localStorage.getItem(key) || '[]');
@@ -225,17 +222,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const rolColor = sesion.rol === 'Admin' ? '#ff4757' : sesion.rol === 'Staff' ? '#4facfe' : '#2ed573';
 
         const accesosPorRol = {
-            'Admin':  ['Dashboard', 'Usuarios', 'Proyectos', 'Staff', 'Agenda', 'Recursos', 'Ajustes'],
-            'Staff':  ['Dashboard', 'Staff', 'Agenda', 'Recursos'],
+            'Admin':  ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+            'Staff':  ['Dashboard', 'Agenda', 'Recursos'],
             'Siervo': ['Dashboard', 'Agenda', 'Recursos']
         };
         const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
-
-        const descripcionRol = {
-            'Admin':  'Tienes acceso completo al sistema. Puedes gestionar usuarios, proyectos, tareas y toda la configuración.',
-            'Staff':  'Puedes ver y gestionar tareas asignadas, reservar servicios en la agenda y acceder a recursos del equipo.',
-            'Siervo': 'Puedes reservar servicios en la agenda y acceder a los recursos y materiales del equipo.'
-        };
 
         bienvenidaContent.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
@@ -327,21 +318,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('filtro-rol')?.addEventListener('change',  e => cargarTablaUsuarios(e.target.value, document.getElementById('filtro-area').value));
     document.getElementById('filtro-area')?.addEventListener('change', e => cargarTablaUsuarios(document.getElementById('filtro-rol').value, e.target.value));
 
-    function poblarSelectAsignado() {
-        const sel = document.getElementById('staff-asignado');
-        if (!sel) return;
-        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]')
-            .filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO);
-        sel.innerHTML = '<option value="" disabled selected>Selecciona un usuario...</option>';
-        usuarios.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.nombre;
-            opt.textContent = `${u.nombre} (${u.area})`;
-            sel.appendChild(opt);
-        });
-    }
-    poblarSelectAsignado();
-
     // ─── ACCIONES CARDS USUARIOS ─────────────────────────────
     const tablaUsuariosAdmin = document.getElementById('usuarios-cards-container');
     if (tablaUsuariosAdmin && esAdmin) {
@@ -365,7 +341,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     usuarios = usuarios.filter(u => u.correo !== correoUsuario);
                     localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
-                    cargarTablaUsuarios(); actualizarEstadisticas(); poblarSelectAsignado();
+                    cargarTablaUsuarios(); actualizarEstadisticas();
                     showNotification(`Usuario "${nombre}" eliminado.`);
                 });
             }
@@ -434,7 +410,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (displayName) displayName.textContent = nuevoNombre;
         }
         cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
-        poblarSelectAsignado();
         editModal.classList.add('hidden');
         showNotification('Usuario actualizado correctamente.');
     });
@@ -485,13 +460,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return calcularEstadoProyecto(p) !== 'Completado';
     }
 
-    function esTareaHistorica(t) {
-        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const esVencida    = t.vencimiento && new Date(t.vencimiento + 'T00:00:00') < hoy;
-        const esCompletada = t.estadoTarea === 'completada' || t.estadoTarea === 'no-efectuado';
-        return esVencida || esCompletada;
-    }
-
     function cuentaRegresiva(p) {
         if (!p.fecha) return '';
         const hora = p.hora || '00:00';
@@ -506,25 +474,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `\u23f3 Faltan ${mins} min`;
     }
 
-    function verificarAlertasProyecto() {
+    function verificarAlertas() {
         const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
         const areaUsuario = (sesion.area || '').toLowerCase();
         proyectos.forEach(p => {
             if (!p.fecha || !p.hora) return;
             const fechaEvento = new Date(`${p.fecha}T${p.hora}:00`);
             const diff = fechaEvento - new Date();
-            const alertaKey = `alerta_1h_${p.fecha_registro}`;
-            if (diff > 55 * 60000 && diff <= 65 * 60000 && !localStorage.getItem(alertaKey)) {
+            if (diff > 55 * 60000 && diff <= 65 * 60000) {
                 const involucrado = esAdmin || (p.areasData && p.areasData.some(a => a.area.toLowerCase() === areaUsuario));
-                if (involucrado) {
+                if (!involucrado) return;
+                const alertaKey = `alerta_1h_${p.fecha_registro}`;
+                if (!localStorage.getItem(alertaKey)) {
                     showNotification(`\u26a0\ufe0f "${p.nombre}" comienza en 1 hora. \u00a1Prep\u00e1rate!`, 'success');
                     localStorage.setItem(alertaKey, '1');
+                }
+                const pushKey = `push_1h_${p.fecha_registro}`;
+                if (!localStorage.getItem(pushKey)) {
+                    enviarNotificacionPush(`\u26a0\ufe0f ${p.nombre}`, 'El evento comienza en 1 hora. \u00a1Prep\u00e1rate!');
+                    localStorage.setItem(pushKey, '1');
                 }
             }
         });
     }
-    verificarAlertasProyecto();
-    setInterval(verificarAlertasProyecto, 60000);
+    verificarAlertas();
+    setInterval(verificarAlertas, 60000);
 
     // ─── NOTIFICACIONES PUSH DEL NAVEGADOR ───────────────────
     function solicitarPermisoNotificaciones() {
@@ -539,27 +513,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             new Notification(titulo, { body: cuerpo, icon: '' });
         }
     }
-
-    // Verificar alertas push (1h antes) — también envía push
-    function verificarAlertasPush() {
-        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
-        const areaUsuario = (sesion.area || '').toLowerCase();
-        proyectos.forEach(p => {
-            if (!p.fecha || !p.hora) return;
-            const fechaEvento = new Date(`${p.fecha}T${p.hora}:00`);
-            const diff = fechaEvento - new Date();
-            const pushKey = `push_1h_${p.fecha_registro}`;
-            if (diff > 55 * 60000 && diff <= 65 * 60000 && !localStorage.getItem(pushKey)) {
-                const involucrado = esAdmin || (p.areasData && p.areasData.some(a => a.area.toLowerCase() === areaUsuario));
-                if (involucrado) {
-                    enviarNotificacionPush(`\u26a0\ufe0f ${p.nombre}`, 'El evento comienza en 1 hora. \u00a1Prep\u00e1rate!');
-                    localStorage.setItem(pushKey, '1');
-                }
-            }
-        });
-    }
-    setInterval(verificarAlertasPush, 60000);
-    verificarAlertasPush();
 
     function renderProyectos() {
         const lista = document.getElementById('proyectos-lista');
@@ -801,339 +754,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderProyectos(); renderDashboardProyectosYTareas();
         showNotification('Proyecto actualizado.');
     });
-
-    // ─── STAFF / TAREAS ──────────────────────────────────────
-    if (!esAdmin) document.getElementById('crear-tarea-panel')?.style && (document.getElementById('crear-tarea-panel').style.display = 'none');
-
-    function cargarMisTareas() {
-        const misTareasList  = document.getElementById('mis-tareas-list');
-        const misTareasCount = document.getElementById('mis-tareas-count');
-        if (!misTareasList) return;
-        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-        const ahora = new Date();
-        const mes = ahora.getMonth(), anio = ahora.getFullYear();
-
-        // Filtrar por usuario según rol (Admin ve todas, Staff/Siervo solo las propias)
-        let tareas = esAdmin
-            ? todasTareas.filter(t => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })
-            : todasTareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase() && (() => { const f = new Date(t.fecha); return f.getMonth() === mes && f.getFullYear() === anio; })());
-
-        // Excluir tareas históricas (vencidas o completadas/no-efectuadas)
-        tareas = tareas.filter(t => !esTareaHistorica(t));
-
-        const tareasFiltradas = tareas;
-        const tituloEl = document.getElementById('mis-tareas-titulo');
-        if (tituloEl) tituloEl.textContent = esAdmin ? 'Todas las Tareas del Mes' : 'Mis Tareas del Mes';
-        if (misTareasCount) misTareasCount.textContent = tareasFiltradas.length > 0 ? `${tareasFiltradas.length} tarea(s)` : '';
-        misTareasList.innerHTML = '';
-        if (tareasFiltradas.length === 0) {
-            misTareasList.innerHTML = `<li><span class="activity-note-line"><span class="note-detail">\ud83d\udccb Sin tareas activas.</span></span></li>`;
-            return;
-        }
-
-        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-
-        // Admin: agrupar por área. Siervo/Staff: agrupar por semana
-        const grupos = {};
-        tareasFiltradas.forEach(t => {
-            let key;
-            if (esAdmin) {
-                const u = usuarios.find(u => u.nombre === t.asignado);
-                key = u?.area || 'Sin área';
-            } else {
-                key = `Semana ${Math.ceil(new Date(t.fecha).getDate() / 7)}`;
-            }
-            if (!grupos[key]) grupos[key] = [];
-            grupos[key].push(t);
-        });
-
-        Object.entries(grupos).sort().forEach(([grupo, tareas]) => {
-            const sep = document.createElement('div');
-            sep.className = 'week-separator';
-            sep.innerHTML = `<span>${esAdmin ? '\ud83c\udfaf ' : ''}${grupo}</span><span class="week-toggle">\u25be</span>`;
-            sep.addEventListener('click', () => sep.nextElementSibling?.classList.toggle('collapsed'));
-            misTareasList.appendChild(sep);
-            const groupUl = document.createElement('ul');
-            groupUl.style.cssText = 'list-style:none;padding:0;margin:0;';
-            misTareasList.appendChild(groupUl);
-            tareas.forEach(t => {
-                const hora = new Date(t.fecha).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-
-                // Tiempo transcurrido desde creación
-                const ahora2 = new Date();
-                const diffMs  = ahora2 - new Date(t.fecha);
-                const diffDias = Math.floor(diffMs / 86400000);
-                const diffHrs  = Math.floor(diffMs / 3600000);
-                const tiempoCreado = diffDias > 0 ? `Hace ${diffDias}d` : diffHrs > 0 ? `Hace ${diffHrs}h` : 'Hace un momento';
-
-                // Indicador de urgencia
-                let urgenciaHtml = '';
-                if (t.vencimiento && t.estadoTarea !== 'completada') {
-                    const hoy = new Date(); hoy.setHours(0,0,0,0);
-                    const venc = new Date(t.vencimiento + 'T00:00:00');
-                    const diffDias = Math.ceil((venc - hoy) / 86400000);
-                    if (diffDias < 0)       urgenciaHtml = `<span class="tarea-urgencia vencida">\u26d4 Vencida</span>`;
-                    else if (diffDias === 0) urgenciaHtml = `<span class="tarea-urgencia hoy">\u26a0\ufe0f Vence hoy</span>`;
-                    else if (diffDias <= 2)  urgenciaHtml = `<span class="tarea-urgencia pronto">\u23f0 ${diffDias}d</span>`;
-                    else                     urgenciaHtml = `<span class="tarea-urgencia ok">\ud83d\udcc5 ${venc.toLocaleDateString('es', {day:'numeric',month:'short'})}</span>`;
-                }
-                const prioridadCls  = t.prioridad === 'Alta' ? 'prio-alta' : t.prioridad === 'Baja' ? 'prio-baja' : 'prio-media';
-                const prioridadHtml = t.prioridad ? `<span class="tarea-prioridad ${prioridadCls}">${t.prioridad}</span>` : '';
-                const estadoTarea   = t.estadoTarea || 'pendiente';
-                const estadoCls     = estadoTarea === 'completada' ? 'tarea-completada' : estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
-                const estadoLabel   = estadoTarea === 'completada' ? '\u2713 Completada' : estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
-
-                const li = document.createElement('li');
-                li.className = estadoTarea === 'completada' ? 'tarea-item-completada' : '';
-
-                // Para no-Admin: card expandida con todas las opciones
-                if (!esAdmin) {
-                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
-                    const respTarea = aceptaciones[t.fecha];
-                    let aceptacionHtml = '';
-                    if (respTarea === 'acepta') {
-                        aceptacionHtml = `<span class="asistencia-btn asistencia-confirmado">\u2713 Aceptada</span>`;
-                    } else if (respTarea === 'no-puedo') {
-                        aceptacionHtml = `<span class="asistencia-btn asistencia-rechazado">\u2715 No puedo</span>`;
-                    } else {
-                        aceptacionHtml = `
-                            <button class="asistencia-btn asistencia-confirmar btn-aceptar-tarea" data-fecha="${t.fecha}" data-resp="acepta">\u2713 Aceptar</button>
-                            <button class="asistencia-btn asistencia-no-puedo btn-aceptar-tarea" data-fecha="${t.fecha}" data-resp="no-puedo">\u2715 No puedo</button>`;
-                    }
-                    li.innerHTML = `
-                    <div class="tarea-card${estadoTarea === 'completada' ? ' tarea-card-completada' : ''}">
-                        <div class="tarea-card-header">
-                            <span class="tarea-card-titulo">\ud83d\udee0\ufe0f ${t.titulo}</span>
-                            <div style="display:flex;gap:6px;align-items:center;">
-                                ${prioridadHtml}
-                                ${urgenciaHtml}
-                            </div>
-                        </div>
-                        ${t.desc ? `<div class="tarea-card-desc">${t.desc}</div>` : ''}
-                        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px;">\ud83d\udd52 ${tiempoCreado} &nbsp;\u00b7&nbsp; Creada el ${new Date(t.fecha).toLocaleDateString('es',{day:'numeric',month:'short'})}</div>
-                        <div class="tarea-card-footer">
-                            <span class="tarea-estado ${estadoCls} btn-cambiar-estado-tarea" data-fecha="${t.fecha}" style="cursor:pointer;" title="Click para cambiar estado">${estadoLabel}</span>
-                            <button class="btn-secondary btn-comentarios-tarea" data-fecha="${t.fecha}" style="padding:4px 10px;font-size:0.75rem;">\ud83d\udcac Comentarios</button>
-                        </div>
-                        <div class="tarea-aceptacion-row">${aceptacionHtml}</div>
-                    </div>`;
-                } else {
-                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
-                    const respTarea = aceptaciones[t.fecha];
-                    const aceptBadge = respTarea === 'acepta'
-                        ? `<span style="color:#2ed573;font-size:0.7rem;margin-left:4px;">\u2713</span>`
-                        : respTarea === 'no-puedo'
-                        ? `<span style="color:#ff4757;font-size:0.7rem;margin-left:4px;">\u2715</span>`
-                        : `<span style="color:var(--text-muted);font-size:0.7rem;margin-left:4px;">\u25cb</span>`;
-                    li.innerHTML = `<span class="activity-note-line">
-                        <span class="note-detail">\ud83d\udee0\ufe0f ${t.titulo}</span>
-                        <span class="note-user">${t.asignado}${aceptBadge}</span>
-                        <span class="note-time">${tiempoCreado}</span>
-                        <button class="btn-secondary btn-comentarios-tarea" data-fecha="${t.fecha}" style="margin-left:4px;padding:2px 6px;font-size:0.65rem;">\ud83d\udcac</button>
-                        <button class="btn-secondary btn-edit-tarea" data-fecha="${t.fecha}" style="margin-left:2px;padding:2px 6px;font-size:0.65rem;">\u270f\ufe0f</button>
-                        <button class="btn-danger btn-del-tarea" data-fecha="${t.fecha}" style="margin-left:2px;padding:2px 6px;font-size:0.65rem;">\u2715</button>
-                    </span>
-                    <div class="tarea-meta-row">
-                        ${prioridadHtml}
-                        ${urgenciaHtml}
-                        <span class="tarea-estado ${estadoCls} btn-cambiar-estado-tarea" data-fecha="${t.fecha}">${estadoLabel}</span>
-                    </div>
-                    ${t.desc ? `<div class="tarea-desc">${t.desc}</div>` : ''}`;
-                }
-                groupUl.appendChild(li);
-            });
-
-            // Aceptación de tareas (no-Admin) — dentro del forEach para tener groupUl en scope
-            groupUl.querySelectorAll('.btn-aceptar-tarea').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
-                    aceptaciones[btn.dataset.fecha] = btn.dataset.resp;
-                    localStorage.setItem('aceptaciones_tareas', JSON.stringify(aceptaciones));
-                    const msg = btn.dataset.resp === 'acepta' ? '\u2713 Tarea aceptada' : '\u2715 Respuesta registrada';
-                    showNotification(msg);
-                    cargarMisTareas();
-                });
-            });
-        });
-
-        // Comentarios en tareas
-        misTareasList.querySelectorAll('.btn-comentarios-tarea').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                const t = tareas.find(x => x.fecha === btn.dataset.fecha);
-                if (t) abrirComentarios(`tarea_${t.fecha}`, t.titulo);
-            });
-        });
-
-        // Cambiar estado de tarea (todos los roles)
-        misTareasList.querySelectorAll('.btn-cambiar-estado-tarea').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
-                if (idx === -1) return;
-                const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
-                tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
-                localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                cargarMisTareas(); renderHistorialTareas(); renderDashboardProyectosYTareas();
-                if (esAdmin) renderDashTareasStaff();
-            });
-        });
-
-        if (esAdmin) {
-            misTareasList.querySelectorAll('.btn-del-tarea').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    confirmar('Eliminar tarea', '\u00bfEliminar esta tarea?', () => {
-                        let tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                        tareas = tareas.filter(t => t.fecha !== btn.dataset.fecha);
-                        localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                        cargarMisTareas(); actualizarEstadisticas();
-                        showNotification('Tarea eliminada.');
-                    });
-                });
-            });
-            misTareasList.querySelectorAll('.btn-edit-tarea').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                    const t = tareas.find(x => x.fecha === btn.dataset.fecha);
-                    if (!t) return;
-                    document.getElementById('et-titulo').value      = t.titulo;
-                    document.getElementById('et-desc').value        = t.desc || '';
-                    document.getElementById('et-prioridad').value   = t.prioridad || 'Media';
-                    document.getElementById('et-vencimiento').value = t.vencimiento || '';
-                    const sel = document.getElementById('et-asignado');
-                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-                    sel.innerHTML = usuarios.map(u => `<option value="${u.nombre}" ${u.nombre === t.asignado ? 'selected' : ''}>${u.nombre} (${u.area})</option>`).join('');
-                    document.getElementById('edit-tarea-modal')._tareaFecha = t.fecha;
-                    document.getElementById('edit-tarea-modal').classList.remove('hidden');
-                });
-            });
-        }
-    }
-    cargarMisTareas();
-
-    // ─── HISTORIAL DE TAREAS VENCIDAS ────────────────────────
-    function renderHistorialTareas() {
-        const cont  = document.getElementById('tareas-historial');
-        const count = document.getElementById('historial-tareas-count');
-        if (!cont) return;
-        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-
-        // Filtrar: solo tareas históricas + filtro por rol
-        const historicas = todasTareas.filter(t => {
-            const esDelUsuario = esAdmin || (t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
-            return esDelUsuario && esTareaHistorica(t);
-        });
-
-        // Ordenar de más reciente a más antigua por vencimiento
-        historicas.sort((a, b) => new Date(b.vencimiento) - new Date(a.vencimiento));
-
-        if (count) count.textContent = historicas.length;
-        cont.innerHTML = '';
-
-        if (historicas.length === 0) {
-            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas en el historial.</p>';
-            return;
-        }
-
-        historicas.forEach(t => {
-            const vencFmt   = t.vencimiento
-                ? new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
-                : '—';
-            const estadoTarea = t.estadoTarea || 'pendiente';
-            const prioridad   = t.prioridad || '—';
-
-            const prioColor = prioridad === 'Alta' ? '#ff4757' : prioridad === 'Media' ? '#ffa500' : '#2ed573';
-            const estadoColor = estadoTarea === 'completada' ? '#2ed573' : estadoTarea === 'no-efectuado' ? '#ff4757' : '#ffa500';
-
-            const item = document.createElement('div');
-            item.className = 'historial-item';
-            item.style.flexWrap = 'wrap';
-            item.innerHTML = `
-                <div class="historial-info">
-                    <span class="historial-nombre">🛠️ ${t.titulo}</span>
-                    <span class="historial-fecha">${t.asignado} · Venció: ${vencFmt}</span>
-                    <span style="font-size:0.75rem;margin-top:2px;display:flex;gap:8px;">
-                        <span style="color:${prioColor};">● ${prioridad}</span>
-                        <span style="color:${estadoColor};">● ${estadoTarea}</span>
-                    </span>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;">
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="completada" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'completada' ? 'border-color:#2ed573;color:#2ed573;background:rgba(46,213,115,0.1);' : ''}">✓ Terminado</button>
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="pendiente" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'pendiente' ? 'border-color:#ffa500;color:#ffa500;background:rgba(255,165,0,0.1);' : ''}">○ Pendiente</button>
-                    <button class="btn-secondary btn-estado-historial" data-fecha="${t.fecha}" data-estado="no-efectuado" style="padding:4px 10px;font-size:0.75rem;${estadoTarea === 'no-efectuado' ? 'border-color:#ff4757;color:#ff4757;background:rgba(255,71,87,0.1);' : ''}">✕ No efectuado</button>
-                </div>`;
-            cont.appendChild(item);
-        });
-
-        cont.querySelectorAll('.btn-estado-historial').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
-                if (idx !== -1) {
-                    tareas[idx].estadoTarea = btn.dataset.estado;
-                    localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                    renderHistorialTareas();
-                    cargarMisTareas();
-                    renderDashboardProyectosYTareas();
-                    if (esAdmin) renderDashTareasStaff();
-                    showNotification('Estado actualizado.');
-                }
-            });
-        });
-    }
-    renderHistorialTareas();
-
-    // ─── EDITAR TAREA ─────────────────────────────────────────
-    document.getElementById('edit-tarea-form')?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fecha = document.getElementById('edit-tarea-modal')._tareaFecha;
-        const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-        const idx = tareas.findIndex(t => t.fecha === fecha);
-        if (idx === -1) return;
-        tareas[idx].titulo      = document.getElementById('et-titulo').value.trim();
-        tareas[idx].desc        = document.getElementById('et-desc').value.trim();
-        tareas[idx].asignado    = document.getElementById('et-asignado').value;
-        tareas[idx].prioridad   = document.getElementById('et-prioridad').value;
-        tareas[idx].vencimiento = document.getElementById('et-vencimiento').value;
-        localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-        document.getElementById('edit-tarea-modal').classList.add('hidden');
-        cargarMisTareas();
-        renderDashboardProyectosYTareas();
-        showNotification('Tarea actualizada.');
-    });
-
-    if (!esAdmin) {
-        const todasTareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-        const misTareas   = todasTareas.filter(t => t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
-        const vistas      = parseInt(localStorage.getItem(`tareas_vistas_${sesion.correo}`) || '0');
-        const nuevas      = Math.max(0, misTareas.length - vistas);
-        if (nuevas > 0) {
-            showNotification(`Tienes ${nuevas} tarea(s) nueva(s) asignada(s).`, 'success');
-            localStorage.setItem(`tareas_vistas_${sesion.correo}`, misTareas.length);
-        }
-    }
-
-    const formStaff = document.getElementById('staff-form');
-    if (formStaff && esAdmin) {
-        formStaff.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const titulo      = document.getElementById('staff-titulo').value.trim();
-            const asignado    = document.getElementById('staff-asignado').value;
-            const desc        = document.getElementById('staff-desc').value.trim();
-            const prioridad   = document.getElementById('staff-prioridad').value;
-            const vencimiento = document.getElementById('staff-vencimiento').value;
-            const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-            tareas.push({ titulo, asignado, desc, prioridad, vencimiento, fecha: new Date().toISOString() });
-            localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-            cargarMisTareas(); actualizarEstadisticas();
-            showNotification(`Tarea "${titulo}" asignada a ${asignado}.`);
-            formStaff.reset();
-            renderDashboardProyectosYTareas();
-            renderHistorialTareas();
-            renderDashTareasStaff();
-            irA('dashboard-view');
-        });
-    }
 
     // ─── AGENDA MENSUAL ──────────────────────────────────────
 
@@ -1485,7 +1105,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const titTarea   = document.getElementById('dash-tareas-titulo');
         if (!listaProy || !listaTarea) return;
         const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
-        const tareas      = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
         const areaUsuario = (sesion.area || '').toLowerCase();
 
         let proyFiltrados;
@@ -1502,17 +1121,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (titProy) titProy.textContent = 'Mis Proyectos';
         }
 
-        let tareasFiltradas;
-        if (esAdmin) {
-            // Admin: el panel de tareas lo maneja renderDashTareasStaff (agrupado por área)
-            // Solo actualizamos el título, la lista la deja vacía para no duplicar
-            if (titTarea) titTarea.textContent = 'Tareas';
-            listaTarea.innerHTML = '';
-            tareasFiltradas = [];
-        } else {
-            tareasFiltradas = tareas.filter(t => !esTareaHistorica(t) && t.asignado && t.asignado.toLowerCase() === sesion.nombre.toLowerCase());
-            if (titTarea) titTarea.textContent = 'Mis Tareas';
-        }
+        if (titTarea) titTarea.textContent = esAdmin ? 'Proyectos' : 'Mis Proyectos';
+        listaTarea.innerHTML = '';
 
         listaProy.innerHTML = '';
         if (proyFiltrados.length === 0) {
@@ -1559,39 +1169,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
-        listaTarea.innerHTML = '';
-        if (tareasFiltradas.length === 0) {
-            listaTarea.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin tareas activas.</span></li>';
-        } else {
-            [...tareasFiltradas].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(t => {
-                const fechaFmt = new Date(t.fecha).toLocaleDateString('es', { day: 'numeric', month: 'short' });
-                const estadoTarea = t.estadoTarea || 'pendiente';
-                const estadoCls   = estadoTarea === 'completada' ? 'tarea-completada' : estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
-                const estadoLabel = estadoTarea === 'completada' ? '\u2713 Completada' : estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
-                const li = document.createElement('li');
-                li.innerHTML = `<span class="activity-note-line">
-                    <span class="note-detail">\ud83d\udee0\ufe0f ${t.titulo}</span>
-                    <span class="note-user">${esAdmin ? t.asignado : fechaFmt}</span>
-                    <span class="note-time">${esAdmin ? fechaFmt : ''}</span>
-                </span>
-                <span class="tarea-estado ${estadoCls} btn-cambiar-estado-dash" data-fecha="${t.fecha}">${estadoLabel}</span>
-                ${t.desc ? `<div class="tarea-desc">${t.desc}</div>` : ''}`;
-                listaTarea.appendChild(li);
-            });
-            listaTarea.querySelectorAll('.btn-cambiar-estado-dash').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const tareas = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-                    const idx = tareas.findIndex(t => t.fecha === btn.dataset.fecha);
-                    if (idx === -1) return;
-                    const ciclo = { 'pendiente': 'en-progreso', 'en-progreso': 'completada', 'completada': 'pendiente' };
-                    tareas[idx].estadoTarea = ciclo[tareas[idx].estadoTarea || 'pendiente'];
-                    localStorage.setItem('tareas_staff', JSON.stringify(tareas));
-                    renderDashboardProyectosYTareas(); cargarMisTareas(); renderHistorialTareas();
-                    if (esAdmin) renderDashTareasStaff();
-                });
-            });
-        }
-
         // Handler asistencia proyectos
         listaProy.querySelectorAll('.btn-asistencia').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1606,69 +1183,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     renderDashboardProyectosYTareas();
 
-    // Ocultar paneles de proyectos y tareas para Siervos
+    // Ocultar panel de proyectos para Siervos
     if (sesion.rol === 'Siervo') {
         document.getElementById('dash-proyectos-panel')?.style && (document.getElementById('dash-proyectos-panel').style.display = 'none');
-        document.getElementById('dash-tareas-panel')?.style && (document.getElementById('dash-tareas-panel').style.display = 'none');
     }
-
-    // Panel de tareas unificado — Admin ve agrupado por área, otros ven sus propias tareas
-
-    function renderDashTareasStaff() {
-        const cont  = document.getElementById('dash-tareas-staff-list');
-        const count = document.getElementById('dash-tareas-staff-count');
-        if (!cont || !esAdmin) return;
-        const tareas   = JSON.parse(localStorage.getItem('tareas_staff') || '[]');
-        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-        const activas = tareas.filter(t => !esTareaHistorica(t));
-        if (count) count.textContent = activas.length > 0 ? `${activas.length} activa(s)` : '';
-        cont.innerHTML = '';
-        if (activas.length === 0) {
-            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin tareas activas.</p>';
-            return;
-        }
-        // Agrupar por área
-        const grupos = {};
-        activas.forEach(t => {
-            const u   = usuarios.find(u => u.nombre === t.asignado);
-            const key = u?.area || 'Sin área';
-            if (!grupos[key]) grupos[key] = [];
-            grupos[key].push(t);
-        });
-        Object.entries(grupos).sort().forEach(([area, tareas]) => {
-            const sep = document.createElement('div');
-            sep.className = 'recurso-servicio-sep';
-            sep.textContent = `\ud83c\udfaf ${area}`;
-            cont.appendChild(sep);
-            tareas.forEach(t => {
-                const estadoTarea = t.estadoTarea || 'pendiente';
-                const estadoCls   = estadoTarea === 'en-progreso' ? 'tarea-en-progreso' : 'tarea-pendiente';
-                const estadoLabel = estadoTarea === 'en-progreso' ? '\u25b6 En progreso' : '\u25cb Pendiente';
-                const aceptaciones = JSON.parse(localStorage.getItem('aceptaciones_tareas') || '{}');
-                const resp = aceptaciones[t.fecha];
-                const respBadge = resp === 'acepta'
-                    ? `<span style="color:#2ed573;font-size:0.72rem;">\u2713 Aceptó</span>`
-                    : resp === 'no-puedo'
-                    ? `<span style="color:#ff4757;font-size:0.72rem;">\u2715 No puede</span>`
-                    : `<span style="color:var(--text-muted);font-size:0.72rem;">\u25cb Sin resp.</span>`;
-                const vencFmt = t.vencimiento ? new Date(t.vencimiento + 'T00:00:00').toLocaleDateString('es', {day:'numeric',month:'short'}) : '\u2014';
-                const diffMs  = new Date() - new Date(t.fecha);
-                const diffDias = Math.floor(diffMs / 86400000);
-                const tiempoCreado = diffDias > 0 ? `Hace ${diffDias}d` : 'Hoy';
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;font-size:0.82rem;';
-                row.innerHTML = `
-                    <span style="flex:1;font-weight:500;">\ud83d\udee0\ufe0f ${t.titulo}</span>
-                    <span style="color:var(--text-muted);font-size:0.75rem;">${t.asignado}</span>
-                    <span class="tarea-estado ${estadoCls}" style="font-size:0.7rem;padding:1px 8px;">${estadoLabel}</span>
-                    ${respBadge}
-                    <span style="color:var(--text-muted);font-size:0.72rem;">\ud83d\udcc5 Vence: ${vencFmt}</span>
-                    <span style="color:var(--text-muted);font-size:0.72rem;">${tiempoCreado}</span>`;
-                cont.appendChild(row);
-            });
-        });
-    }
-    renderDashTareasStaff();
 
     // ─── COMENTARIOS ─────────────────────────────────────────
     let comentariosKey = null;
@@ -2253,11 +1771,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     DB.listenProyectos(data => {
         _lsSetItem('proyectos_creados', JSON.stringify(data));
         renderProyectos(); renderDashboardProyectosYTareas();
-    });
-    DB.listenTareas(data => {
-        _lsSetItem('tareas_staff', JSON.stringify(data));
-        cargarMisTareas(); renderHistorialTareas();
-        renderDashboardProyectosYTareas(); renderDashTareasStaff();
     });
     DB.listenServicios(data => {
         _lsSetItem('servicios_reservados', JSON.stringify(data));
