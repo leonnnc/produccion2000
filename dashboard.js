@@ -964,21 +964,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
     function esPdfExpirado(p) {
         if (!p.servicio) return false;
-        const SERVICIOS_HORA = {
-            'dom-1': { dia: 0, h: 7,  m: 30 },
-            'dom-2': { dia: 0, h: 11, m: 0  },
-            'dom-3': { dia: 0, h: 13, m: 0  },
-            'dom-4': { dia: 0, h: 19, m: 0  },
-            'mie-1': { dia: 3, h: 19, m: 0  }
+        // Cada servicio expira cuando empieza el siguiente (o 2h después para el último)
+        const SERVICIOS_FIN = {
+            'dom-1': { dia: 0, h: 11, m: 0  }, // termina cuando empieza dom-2
+            'dom-2': { dia: 0, h: 13, m: 0  }, // termina cuando empieza dom-3
+            'dom-3': { dia: 0, h: 19, m: 0  }, // termina cuando empieza dom-4
+            'dom-4': { dia: 0, h: 21, m: 0  }, // termina 2h después del inicio
+            'mie-1': { dia: 3, h: 21, m: 0  }  // termina 2h después del inicio
         };
-        const cfg = SERVICIOS_HORA[p.servicio];
+        const cfg = SERVICIOS_FIN[p.servicio];
         if (!cfg) return false;
         const ahora = new Date();
         const diasAtras = (ahora.getDay() - cfg.dia + 7) % 7;
-        const fechaServicio = new Date(ahora);
-        fechaServicio.setDate(ahora.getDate() - diasAtras);
-        fechaServicio.setHours(cfg.h, cfg.m, 0, 0);
-        return ahora > new Date(fechaServicio.getTime() + EXPIRY_OFFSET_MS);
+        const fechaFin = new Date(ahora);
+        fechaFin.setDate(ahora.getDate() - diasAtras);
+        fechaFin.setHours(cfg.h, cfg.m, 0, 0);
+        return ahora > fechaFin;
     }
 
     function renderDashProgramacion() {
