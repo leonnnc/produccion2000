@@ -1768,7 +1768,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ─── LISTENERS FIREBASE EN TIEMPO REAL ───────────────────
     // Se registran al final para que todas las funciones estén definidas
-    DB.listenUsuarios(data => { _lsSetItem('usuarios_registrados', JSON.stringify(data)); });
+    DB.listenUsuarios(data => {
+        _lsSetItem('usuarios_registrados', JSON.stringify(data));
+        cargarTablaUsuarios(
+            document.getElementById('filtro-rol')?.value || '',
+            document.getElementById('filtro-area')?.value || ''
+        );
+        actualizarEstadisticas();
+    });
     DB.listenProyectos(data => {
         _lsSetItem('proyectos_creados', JSON.stringify(data));
         renderProyectos(); renderDashboardProyectosYTareas();
