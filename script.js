@@ -8,14 +8,14 @@ import { hashPassword, showNotification } from './utils.js';
 async function crearAdminPorDefecto() {
     const usuarios = await DB.getUsuarios();
     const adminIdx = usuarios.findIndex(u => u.rol === 'Admin');
+    const claveCorrecta = await hashPassword('Admin2024!');
 
     if (adminIdx === -1) {
         // No existe ningún admin — crear uno nuevo con SHA-256
-        const claveHash = await hashPassword('Admin2024!');
         usuarios.unshift({
             nombre: 'Administrador',
             correo: 'admin@produccion.com',
-            clave: claveHash,
+            clave: claveCorrecta,
             area: 'Administración',
             telefono: '',
             rol: 'Admin',
@@ -23,17 +23,13 @@ async function crearAdminPorDefecto() {
         });
         await DB.setUsuarios(usuarios);
     } else {
-        // Ya existe un admin — migrar su clave si todavía está en btoa (< 64 chars)
+        // Ya existe un admin — asegurarse de que su clave sea el hash correcto
+        // de 'Admin2024!' (no btoa, no hash de btoa, sino hash del texto plano)
         const admin = usuarios[adminIdx];
-        if (admin.clave && admin.clave.length < 64) {
-            try {
-                const claveTexto = atob(admin.clave);
-                admin.clave = await hashPassword(claveTexto);
-                await DB.setUsuarios(usuarios);
-                console.log('Clave del admin migrada a SHA-256.');
-            } catch (_) {
-                // Si no es base64 válido, no tocar
-            }
+        if (admin.clave !== claveCorrecta) {
+            admin.clave = claveCorrecta;
+            await DB.setUsuarios(usuarios);
+            console.log('Clave del admin sincronizada a SHA-256 correcto.');
         }
     }
 }
