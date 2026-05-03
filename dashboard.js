@@ -1087,24 +1087,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderReservasSemana();
 
     // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
+
+    /**
+     * Retorna true si el PDF de programación ya expiró.
+     * Un PDF expira 2 horas después del inicio del servicio al que está asociado.
+     * Si el servicio no tiene fecha próxima (ya pasó esta semana y no hay otro),
+     * el PDF se considera expirado.
+     */
     function esPdfExpirado(p) {
         if (!p.servicio) return false;
-        // Cada servicio expira cuando empieza el siguiente (o 2h después para el último)
-        const SERVICIOS_FIN = {
-            'dom-1': { dia: 0, h: 11, m: 0  }, // termina cuando empieza dom-2
-            'dom-2': { dia: 0, h: 13, m: 0  }, // termina cuando empieza dom-3
-            'dom-3': { dia: 0, h: 19, m: 0  }, // termina cuando empieza dom-4
-            'dom-4': { dia: 0, h: 21, m: 0  }, // termina 2h después del inicio
-            'mie-1': { dia: 3, h: 21, m: 0  }  // termina 2h después del inicio
+
+        // Hora de inicio de cada tipo de servicio
+        const SERVICIOS_INICIO = {
+            'dom-1': { diaSemana: 0, h: 7,  m: 30 },
+            'dom-2': { diaSemana: 0, h: 11, m: 0  },
+            'dom-3': { diaSemana: 0, h: 13, m: 0  },
+            'dom-4': { diaSemana: 0, h: 19, m: 0  },
+            'mie-1': { diaSemana: 3, h: 19, m: 0  }
         };
-        const cfg = SERVICIOS_FIN[p.servicio];
+
+        const cfg = SERVICIOS_INICIO[p.servicio];
         if (!cfg) return false;
+
         const ahora = new Date();
-        const diasAtras = (ahora.getDay() - cfg.dia + 7) % 7;
-        const fechaFin = new Date(ahora);
-        fechaFin.setDate(ahora.getDate() - diasAtras);
-        fechaFin.setHours(cfg.h, cfg.m, 0, 0);
-        return ahora > fechaFin;
+        const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
+
+        // Buscar el próximo (o actual) domingo/miércoles del mes
+        // Primero intentar esta semana, luego la siguiente
+        for (let offset = -7; offset <= 7; offset += 7) {
+            const candidato = new Date(ahora);
+            const diffDia = (cfg.diaSemana - ahora.getDay() + 7) % 7;
+            candidato.setDate(ahora.getDate() + diffDia + offset);
+            candidato.setHours(cfg.h, cfg.m, 0, 0);
+
+            const expira = candidato.getTime() + DOS_HORAS_MS;
+
+            // Si este candidato está en el futuro o aún no expiró → no expirado
+            if (ahora.getTime() < expira) return false;
+
+            // Si ya expiró este candidato, seguir buscando el siguiente
+        }
+
+        // Todos los candidatos cercanos ya expiraron
+        return true;
     }
 
     function renderDashProgramacion() {
@@ -1145,10 +1170,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (relevantes.length === 0) { panel.style.display = 'none'; return; }
 
-        const activos   = relevantes.filter(p => !esPdfExpirado(p));
-        const expirados = relevantes.filter(p => esPdfExpirado(p));
+        // Solo mostrar PDFs activos — los expirados no aparecen en el dashboard
+        const activos = relevantes.filter(p => !esPdfExpirado(p));
 
-        if (activos.length === 0 && expirados.length === 0) { panel.style.display = 'none'; return; }
+        if (activos.length === 0) { panel.style.display = 'none'; return; }
 
         panel.style.display = '';
         cont.innerHTML = '';
@@ -1193,24 +1218,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 items.forEach(p => grid.appendChild(renderPdfCard(p)));
                 cont.appendChild(grid);
             });
-        }
-
-        // Historial colapsable de expirados
-        if (expirados.length > 0) {
-            const histDiv = document.createElement('div');
-            histDiv.style.marginTop = '12px';
-            const toggle = document.createElement('div');
-            toggle.className = 'week-separator';
-            toggle.style.cursor = 'pointer';
-            toggle.innerHTML = `<span>\ud83d\udccb Historial (${expirados.length})</span><span class="week-toggle">\u25be</span>`;
-            const histCont = document.createElement('div');
-            histCont.className = 'collapsed';
-            histCont.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:8px;';
-            expirados.forEach(p => histCont.appendChild(renderPdfCard(p)));
-            toggle.addEventListener('click', () => histCont.classList.toggle('collapsed'));
-            histDiv.appendChild(toggle);
-            histDiv.appendChild(histCont);
-            cont.appendChild(histDiv);
         }
 
         // Click handler para abrir modal
