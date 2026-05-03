@@ -134,7 +134,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Continuar con la sesión local si hay error de red
     }
 
-    const displayName = { textContent: sesion.nombre }; // referencia virtual
     const displayRole = document.querySelector('.user-role');
     if (displayRole) displayRole.textContent = sesion.rol === 'Admin' ? 'Administrador' : sesion.rol === 'Staff' ? 'Staff' : 'Siervo';
 
@@ -425,7 +424,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (correoOriginal === sesion.correo) {
             sesion.nombre = nuevoNombre; sesion.correo = nuevoCorreo; sesion.area = nuevaArea;
             sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
-            if (displayName) displayName.textContent = nuevoNombre;
+            if (avatarEl) {
+                const ini = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                avatarEl.textContent = ini;
+            }
         }
         cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
         editModal.classList.add('hidden');
@@ -1500,7 +1502,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         sesion.nombre = nuevoNombre;
         sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
-        if (displayName) displayName.textContent = nuevoNombre;
         if (avatarEl) {
             const iniciales = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
             avatarEl.textContent = iniciales;
