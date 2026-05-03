@@ -2,6 +2,7 @@
 // DASHBOARD ERP — dashboard.js
 // ==========================================
 import { DB } from './firebase.js';
+import { hashPassword, showNotification } from './utils.js';
 
 // ─── CAPA DE COMPATIBILIDAD localStorage ↔ Firebase ─────
 // Sincroniza Firebase → localStorage al cargar, y localStorage → Firebase al escribir
@@ -85,24 +86,7 @@ const SERVICIOS_SEMANA = [
     { label: '🌙 Miércoles · Servicio (7:00 PM)',    value: 'mie-1' },
 ];
 
-const showNotification = (message, type = 'success') => {
-    let container = document.getElementById('notification-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'notification-container';
-        container.className = 'notification-container';
-        document.body.appendChild(container);
-    }
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    const iconSvg = type === 'success'
-        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01"></path></svg>';
-    notification.innerHTML = `<div class="notification-icon">${iconSvg}</div><div class="notification-message">${message}</div>`;
-    container.appendChild(notification);
-    requestAnimationFrame(() => requestAnimationFrame(() => notification.classList.add('show')));
-    setTimeout(() => { notification.classList.remove('show'); setTimeout(() => notification.remove(), 400); }, 4500);
-};
+// showNotification se importa desde utils.js
 
 function confirmar(titulo, mensaje, onOk) {
     const modal = document.getElementById('confirm-modal');
@@ -124,8 +108,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     await sincronizarDesdeFirebase();
 
     const sesionRaw = sessionStorage.getItem('sesion_activa');
-    const sesion    = sesionRaw ? JSON.parse(sesionRaw) : null;
+    let sesion      = sesionRaw ? JSON.parse(sesionRaw) : null;
     if (!sesion) { window.location.replace('index.html'); return; }
+
+    // ─── VERIFICACIÓN DE ROL CONTRA FIREBASE ─────────────────
+    // Evita que un usuario manipule su rol en sessionStorage.
+    try {
+        const usuarios = await DB.getUsuarios();
+        const usuarioReal = usuarios.find(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+        if (!usuarioReal) {
+            // La cuenta fue eliminada mientras estaba activa
+            sessionStorage.removeItem('sesion_activa');
+            window.location.replace('index.html');
+            return;
+        }
+        // Sincronizar rol y área desde Firebase (fuente de verdad)
+        if (usuarioReal.rol !== sesion.rol || usuarioReal.area !== sesion.area || usuarioReal.nombre !== sesion.nombre) {
+            sesion.rol    = usuarioReal.rol;
+            sesion.area   = usuarioReal.area || '';
+            sesion.nombre = usuarioReal.nombre;
+            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+        }
+    } catch (e) {
+        console.warn('No se pudo verificar el rol contra Firebase:', e);
+        // Continuar con la sesión local si hay error de red
+    }
 
     const displayName = { textContent: sesion.nombre }; // referencia virtual
     const displayRole = document.querySelector('.user-role');
@@ -331,7 +338,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 confirmar('Resetear contraseña', `¿Resetear la contraseña de "${nombre}"? Se establecerá como "Reset2024!".`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
-                    if (idx !== -1) { usuarios[idx].clave = btoa('Reset2024!'); localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    if (idx !== -1) {
+                        hashPassword('Reset2024!').then(hash => {
+                            usuarios[idx].clave = hash;
+                            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                        });
+                    }
                     showNotification(`Contraseña de "${nombre}" reseteada a "Reset2024!".`);
                 });
             }
@@ -401,8 +413,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const idx = usuarios.findIndex(u => u.correo === correoOriginal);
         if (idx !== -1) {
             usuarios[idx].nombre = nuevoNombre; usuarios[idx].correo = nuevoCorreo; usuarios[idx].area = nuevaArea;
-            if (nuevaClave) usuarios[idx].clave = btoa(nuevaClave);
-            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+            if (nuevaClave) {
+                hashPassword(nuevaClave).then(hash => {
+                    usuarios[idx].clave = hash;
+                    localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                });
+            } else {
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+            }
         }
         if (correoOriginal === sesion.correo) {
             sesion.nombre = nuevoNombre; sesion.correo = nuevoCorreo; sesion.area = nuevaArea;
@@ -1350,7 +1368,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>`;
     }
 
-    document.getElementById('perfil-form')?.addEventListener('submit', (e) => {
+    document.getElementById('perfil-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const nuevoNombre = document.getElementById('perfil-nombre').value.trim();
         const nuevoTel    = document.getElementById('perfil-telefono').value.trim();
@@ -1360,7 +1378,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (idx !== -1) {
             usuarios[idx].nombre   = nuevoNombre;
             usuarios[idx].telefono = nuevoTel;
-            if (nuevaClave) usuarios[idx].clave = btoa(nuevaClave);
+            if (nuevaClave) {
+                const hash = await hashPassword(nuevaClave);
+                usuarios[idx].clave = hash;
+            }
             localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
         }
         sesion.nombre = nuevoNombre;

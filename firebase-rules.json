@@ -1,0 +1,59 @@
+{
+  "_comentario": "Reglas de seguridad para Firebase Realtime Database.",
+  "_instrucciones": [
+    "1. Ve a https://console.firebase.google.com/project/produccion-erp-bea1a/database/produccion-erp-bea1a-default-rtdb/rules",
+    "2. Reemplaza las reglas actuales con el bloque 'rules' de abajo.",
+    "3. Haz clic en 'Publicar'."
+  ],
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "usuarios_registrados": {
+      ".read": true,
+      ".write": true,
+      "_comentario": "Lectura pública necesaria para login. Escritura necesaria para registro.",
+      "_mejora_futura": "Migrar a Firebase Authentication para eliminar esta regla abierta."
+    },
+
+    "proyectos_creados": {
+      ".read": true,
+      ".write": true
+    },
+
+    "servicios_reservados": {
+      ".read": true,
+      ".write": true
+    },
+
+    "asistencias_proyectos": {
+      ".read": true,
+      ".write": true
+    },
+
+    "aceptaciones_tareas": {
+      ".read": true,
+      ".write": true
+    },
+
+    "comentarios": {
+      ".read": true,
+      ".write": true
+    },
+
+    "recursos_pdfs": {
+      ".read": true,
+      ".write": true
+    },
+
+    "recursos_videos": {
+      ".read": true,
+      ".write": true
+    },
+
+    "lideres_area": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}

@@ -2,49 +2,73 @@
 // SCRIPT.JS — Login / Registro con Firebase
 // ==========================================
 import { DB } from './firebase.js';
+import { hashPassword, showNotification } from './utils.js';
 
 // ─── ADMIN POR DEFECTO ───────────────────────────────────
 async function crearAdminPorDefecto() {
     const usuarios = await DB.getUsuarios();
-    const tieneAdmin = usuarios.some(u => u.rol === 'Admin');
-    if (!tieneAdmin) {
+    const adminIdx = usuarios.findIndex(u => u.rol === 'Admin');
+
+    if (adminIdx === -1) {
+        // No existe ningún admin — crear uno nuevo con SHA-256
+        const claveHash = await hashPassword('Admin2024!');
         usuarios.unshift({
             nombre: 'Administrador',
             correo: 'admin@produccion.com',
-            clave: btoa('Admin2024!'),
+            clave: claveHash,
             area: 'Administración',
             telefono: '',
             rol: 'Admin',
             fecha: new Date().toISOString()
         });
         await DB.setUsuarios(usuarios);
+    } else {
+        // Ya existe un admin — migrar su clave si todavía está en btoa (< 64 chars)
+        const admin = usuarios[adminIdx];
+        if (admin.clave && admin.clave.length < 64) {
+            try {
+                const claveTexto = atob(admin.clave);
+                admin.clave = await hashPassword(claveTexto);
+                await DB.setUsuarios(usuarios);
+                console.log('Clave del admin migrada a SHA-256.');
+            } catch (_) {
+                // Si no es base64 válido, no tocar
+            }
+        }
     }
+}
+
+// ─── MIGRACIÓN: btoa → SHA-256 ───────────────────────────
+// Convierte contraseñas antiguas en base64 a SHA-256 la primera vez que el
+// usuario inicia sesión correctamente con la clave en texto plano.
+async function migrarClavesSiNecesario(usuarios) {
+    const migrado = localStorage.getItem('claves_migradas_sha256');
+    if (migrado) return usuarios;
+
+    let cambios = false;
+    for (const u of usuarios) {
+        // Las claves SHA-256 tienen 64 chars hex; las btoa son más cortas y
+        // contienen caracteres base64 (A-Z, a-z, 0-9, +, /, =).
+        if (u.clave && u.clave.length < 64) {
+            try {
+                // Decodificar la clave base64 y re-hashear con SHA-256
+                const claveTexto = atob(u.clave);
+                u.clave = await hashPassword(claveTexto);
+                cambios = true;
+            } catch (_) { /* ignorar si no es base64 válido */ }
+        }
+    }
+    if (cambios) {
+        await DB.setUsuarios(usuarios);
+        localStorage.setItem('claves_migradas_sha256', '1');
+    }
+    return usuarios;
 }
 
 // Estilos de animación
 const style = document.createElement('style');
 style.textContent = `@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`;
 document.head.appendChild(style);
-
-// ─── NOTIFICACIONES ──────────────────────────────────────
-const showNotification = (message, type = 'success') => {
-    let container = document.getElementById('notification-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'notification-container';
-        container.className = 'notification-container';
-        document.body.appendChild(container);
-    }
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    const iconSvg = type === 'success'
-        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01"></path></svg>';
-    notification.innerHTML = `<div class="notification-icon">${iconSvg}</div><div class="notification-message">${message}</div>`;
-    container.appendChild(notification);
-    requestAnimationFrame(() => requestAnimationFrame(() => notification.classList.add('show')));
-    setTimeout(() => { notification.classList.remove('show'); setTimeout(() => notification.remove(), 400); }, 4500);
-};
 
 document.addEventListener('DOMContentLoaded', async () => {
     const loginPanel      = document.getElementById('login-panel');
@@ -82,7 +106,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (showLoginBtn)    showLoginBtn.addEventListener('click',    (e) => { e.preventDefault(); switchPanel(registerPanel, loginPanel); });
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Mínimo 8 caracteres, al menos una letra y un número
     function validarClave(pwd) { return pwd.length >= 8 && /[a-zA-Z]/.test(pwd) && /[0-9]/.test(pwd); }
+
     function mostrarError(inputId, msg) {
         const el = document.getElementById(inputId);
         if (!el) return;
@@ -114,8 +140,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Verificando...';
             btn.style.pointerEvents = 'none';
 
-            const usuarios = await DB.getUsuarios();
-            const usuario  = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
+            let usuarios = await DB.getUsuarios();
+            // Migrar claves antiguas (btoa → SHA-256) de forma transparente
+            usuarios = await migrarClavesSiNecesario(usuarios);
+
+            const usuario = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
 
             if (!usuario) {
                 btn.textContent = 'Iniciar Sesión';
@@ -126,7 +155,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 showNotification('No encontramos esa cuenta. Completa tu registro.', 'error');
                 return;
             }
-            if (usuario.clave !== btoa(clave)) {
+
+            const claveHash = await hashPassword(clave);
+            if (usuario.clave !== claveHash) {
                 btn.textContent = 'Iniciar Sesión';
                 btn.style.pointerEvents = 'all';
                 showNotification('Contraseña incorrecta. Intenta de nuevo.', 'error');
@@ -134,6 +165,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Ingresando...';
+            // Guardamos solo datos no sensibles en sesión — el rol se verifica
+            // contra Firebase al cargar el dashboard.
             sessionStorage.setItem('sesion_activa', JSON.stringify({
                 nombre: usuario.nombre,
                 correo: usuario.correo,
@@ -181,10 +214,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
+            const claveHash = await hashPassword(pwd);
             usuarios.push({
                 nombre: `${nombre} ${apellido}`.trim(),
                 correo,
-                clave: btoa(pwd),
+                clave: claveHash,
                 area,
                 telefono,
                 rol: 'Siervo',
