@@ -30,7 +30,7 @@ localStorage.setItem = function(key, value) {
             'recursos_videos':      () => DB.setVideos(data),
             'lideres_area':         () => DB.setLideres(data),
         };
-        if (writeMap[key]) writeMap[key]().catch(e => console.warn('Firebase write error:', e));
+        if (writeMap[key]) writeMap[key]().catch(() => {});
     } catch(e) {}
 };
 
@@ -55,7 +55,7 @@ async function sincronizarDesdeFirebase() {
                     _lsSetItem(key, JSON.stringify(data));
                 }
             }
-        } catch(e) { console.warn('Sync error for', key, e); }
+        } catch(e) { /* ignorar errores de sincronización */ }
     }));
 }
 
@@ -64,7 +64,6 @@ let agendaMonthOffset = 0;
 
 // Constantes globales
 const ADMIN_MAESTRO = 'admin@produccion.com';
-const EXPIRY_OFFSET_MS = 45 * 60 * 1000;
 
 const AREA_MAP = {
     'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
@@ -130,7 +129,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
         }
     } catch (e) {
-        console.warn('No se pudo verificar el rol contra Firebase:', e);
         // Continuar con la sesión local si hay error de red
     }
 

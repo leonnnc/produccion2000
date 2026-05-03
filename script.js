@@ -29,7 +29,6 @@ async function crearAdminPorDefecto() {
         if (admin.clave !== claveCorrecta) {
             admin.clave = claveCorrecta;
             await DB.setUsuarios(usuarios);
-            console.log('Clave del admin sincronizada a SHA-256 correcto.');
         }
     }
 }

@@ -117,7 +117,6 @@ export const DB = {
         const migrado = localStorage.getItem('firebase_migrado');
         if (migrado) return;
 
-        console.log('Migrando datos de localStorage a Firebase...');
         const ops = [];
 
         for (const [dbKey, lsKey] of Object.entries(KEYS)) {
@@ -133,6 +132,5 @@ export const DB = {
 
         await Promise.all(ops);
         localStorage.setItem('firebase_migrado', '1');
-        console.log('Migración completada.');
     }
 };
