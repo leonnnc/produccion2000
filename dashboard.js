@@ -785,61 +785,168 @@ document.addEventListener('DOMContentLoaded', async () => {
         return days;
     }
 
+    /**
+     * Dado un día (Date) y una hora en formato "7:30 AM", retorna el Date exacto del servicio.
+     */
+    function servicioFechaExacta(dia, horaStr) {
+        const m = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (!m) return null;
+        let h = parseInt(m[1]);
+        const min = parseInt(m[2]);
+        const period = m[3].toUpperCase();
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        return new Date(dia.getFullYear(), dia.getMonth(), dia.getDate(), h, min, 0, 0);
+    }
+
+    /**
+     * Retorna true si el servicio ya expiró (pasaron 2h desde su inicio).
+     */
+    function servicioExpirado(dia, horaStr) {
+        const fechaServicio = servicioFechaExacta(dia, horaStr);
+        if (!fechaServicio) return false;
+        const expira = new Date(fechaServicio.getTime() + 2 * 60 * 60 * 1000);
+        return new Date() > expira;
+    }
+
     function generateAgendaMonth() {
         const container = document.getElementById('agenda-dynamic-container');
         const titleEl   = document.getElementById('agenda-week-title');
         const rangeEl   = document.getElementById('agenda-week-range');
         if (!container) return;
+
         const allDays    = getMonthDays(agendaMonthOffset);
-        const sundays    = allDays.filter(d => d.getDay() === 0);
-        const wednesdays = allDays.filter(d => d.getDay() === 3);
-        const monthName  = allDays[0].toLocaleDateString('es', { month: 'long', year: 'numeric' });
-        if (titleEl) titleEl.textContent = `Agenda \u2014 ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
-        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participar\u00e1s este mes';
-        const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        const ahora      = new Date();
+
+        // Solo domingos y miércoles que NO hayan expirado completamente
+        // (un día expira cuando su último servicio + 2h ya pasó)
+        const sundays    = allDays.filter(d => {
+            if (d.getDay() !== 0) return false;
+            // El último servicio del domingo es 7:00 PM → expira a las 9:00 PM
+            return !servicioExpirado(d, '7:00 PM');
+        });
+        const wednesdays = allDays.filter(d => {
+            if (d.getDay() !== 3) return false;
+            // El único servicio del miércoles es 7:00 PM → expira a las 9:00 PM
+            return !servicioExpirado(d, '7:00 PM');
+        });
+
+        const monthName = allDays[0].toLocaleDateString('es', { month: 'long', year: 'numeric' });
+        if (titleEl) titleEl.textContent = `Agenda — ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
+        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participarás este mes';
+
         const sesionActual = JSON.parse(sessionStorage.getItem('sesion_activa') || 'null');
         const userName = sesionActual?.nombre || '';
         const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
 
+        /**
+         * Construye la tabla de servicios para un grupo de días.
+         * Cada columna = un día, cada fila = un horario.
+         * Los servicios ya expirados se muestran atenuados y deshabilitados.
+         */
         const buildTable = (days, times, prefix, dayLabel, colorClass) => {
             if (days.length === 0) return '';
-            let t = `<div class="table-container" style="margin-bottom:24px;overflow-x:auto;"><table class="users-table agenda-reserve-table agenda-table-${colorClass}">`;
+
+            // Formato de cabecera: "Dom\n4 may"
+            const fmtHeader = d => {
+                const dia  = d.getDate();
+                const mes  = d.toLocaleDateString('es', { month: 'short' });
+                const esHoy = d.toDateString() === ahora.toDateString();
+                return `${dia} ${mes}${esHoy ? ' 📍' : ''}`;
+            };
+
+            let t = `<div class="table-container" style="margin-bottom:24px;overflow-x:auto;">`;
+            t += `<table class="users-table agenda-reserve-table agenda-table-${colorClass}">`;
             t += `<thead><tr><th style="width:110px;">Horario</th>`;
-            days.forEach(d => { t += `<th class="text-center agenda-col-${colorClass}">${fmt(d)}<br><small>${dayLabel}</small></th>`; });
+            days.forEach(d => {
+                t += `<th class="text-center agenda-col-${colorClass}">${fmtHeader(d)}<br><small>${dayLabel}</small></th>`;
+            });
             t += `</tr></thead><tbody>`;
+
             times.forEach((time, ti) => {
                 t += `<tr><td><strong>${time}</strong></td>`;
                 days.forEach((d, di) => {
-                    const value = `${dayLabel} ${d.getDate()} a las ${time}`;
-                    const id = `${prefix}-${ti}-${di}`;
+                    const value    = `${dayLabel} ${d.getDate()} a las ${time}`;
+                    const id       = `${prefix}-${ti}-${di}`;
+                    const expirado = servicioExpirado(d, time);
                     const isReserved = misReservas.has(value);
-                    t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
-                        <input type="checkbox" id="${id}" name="agenda-servicios[]" value="${value}" class="time-checkbox" ${isReserved ? 'checked disabled' : ''}>
-                        <label for="${id}" class="time-label compact-label">${isReserved ? '\u2713' : 'Servicio'}</label></td>`;
+
+                    if (expirado) {
+                        // Servicio ya pasó — mostrar como finalizado, no interactuable
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;opacity:0.35;">
+                            <span class="time-label compact-label" style="cursor:default;font-size:0.75rem;color:var(--text-muted);">Finalizado</span>
+                        </td>`;
+                    } else {
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                            <input type="checkbox" id="${id}" name="agenda-servicios[]" value="${value}" class="time-checkbox" ${isReserved ? 'checked disabled' : ''}>
+                            <label for="${id}" class="time-label compact-label">${isReserved ? '✓' : 'Reservar'}</label>
+                        </td>`;
+                    }
                 });
                 t += `</tr>`;
             });
+
             t += `</tbody></table></div>`;
             return t;
         };
 
         let html = '';
         if (sundays.length === 0 && wednesdays.length === 0) {
-            html = '<p style="color:var(--text-muted);padding:20px 0;">No hay servicios programados este mes.</p>';
+            html = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+                <div style="font-size:2.5rem;margin-bottom:12px;">📅</div>
+                <p>No quedan servicios disponibles este mes.</p>
+                <p style="font-size:0.85rem;margin-top:6px;">Los servicios aparecen hasta 2 horas después de su inicio.</p>
+            </div>`;
         } else {
             if (sundays.length > 0) {
-                html += '<h3 class="agenda-section-title agenda-title-domingo">\u2600\ufe0f Servicios de Domingo</h3>';
+                html += '<h3 class="agenda-section-title agenda-title-domingo">☀️ Servicios de Domingo</h3>';
                 html += buildTable(sundays, ['7:30 AM','11:00 AM','1:00 PM','7:00 PM'], 'sun', 'Domingo', 'domingo');
             }
             if (wednesdays.length > 0) {
-                html += '<h3 class="agenda-section-title agenda-title-miercoles">\ud83c\udf19 Servicios de Mi\u00e9rcoles</h3>';
-                html += buildTable(wednesdays, ['7:00 PM'], 'wed', 'Mi\u00e9rcoles', 'miercoles');
+                html += '<h3 class="agenda-section-title agenda-title-miercoles">🌙 Servicios de Miércoles</h3>';
+                html += buildTable(wednesdays, ['7:00 PM'], 'wed', 'Miércoles', 'miercoles');
             }
         }
         container.innerHTML = html;
+
         const btnVerReservas = document.getElementById('btn-ver-reservas');
         if (btnVerReservas) btnVerReservas.style.display = (sesionActual?.rol === 'Admin') ? 'inline-block' : 'none';
+
+        // Auto-refrescar la agenda cuando expire el próximo servicio
+        programarRefrescoAgenda(allDays);
+    }
+
+    /**
+     * Calcula cuándo expira el próximo servicio activo y programa un setTimeout
+     * para regenerar la agenda automáticamente en ese momento.
+     */
+    function programarRefrescoAgenda(allDays) {
+        clearTimeout(window._agendaRefreshTimer);
+        const ahora = new Date();
+        const todosServicios = [];
+
+        allDays.forEach(d => {
+            const times = d.getDay() === 0
+                ? ['7:30 AM','11:00 AM','1:00 PM','7:00 PM']
+                : d.getDay() === 3 ? ['7:00 PM'] : [];
+            times.forEach(t => {
+                const expira = servicioFechaExacta(d, t);
+                if (expira) {
+                    const expiraMs = expira.getTime() + 2 * 60 * 60 * 1000;
+                    if (expiraMs > ahora.getTime()) todosServicios.push(expiraMs);
+                }
+            });
+        });
+
+        if (todosServicios.length === 0) return;
+        const proximaExpiracion = Math.min(...todosServicios);
+        const msHasta = proximaExpiracion - ahora.getTime();
+
+        window._agendaRefreshTimer = setTimeout(() => {
+            generateAgendaMonth();
+            limpiarServiciosExpirados();
+        }, msHasta + 1000); // +1s de margen
     }
     generateAgendaMonth();
 
@@ -880,14 +987,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ─── LIMPIEZA DE SERVICIOS EXPIRADOS ─────────────────────
 
-    function servicioToDate(servicioStr) {
-        const horaMap = { '1er Servicio': '7:30 AM', '2do Servicio': '11:00 AM', '3er Servicio': '1:00 PM', '4to Servicio': '7:00 PM', '7:00 PM': '7:00 PM' };
-        const matchViejo = servicioStr.match(/^(Domingo|Mi\u00e9rcoles)\s+(\d+)\s+a las\s+(.+)$/);
-        const matchNuevo = servicioStr.match(/^(Domingo|Mi\u00e9rcoles)\s+(\d+)\s+\u00b7\s+(.+)$/);
-        const m = matchViejo || matchNuevo;
+    /**
+     * Convierte el string de un servicio reservado a su Date de inicio.
+     * Usa la fecha de reserva (s.fecha) para determinar el mes/año correcto.
+     * Formato del string: "Domingo 4 a las 7:30 AM" o "Miércoles 7 a las 7:00 PM"
+     */
+    function servicioToDate(servicioStr, fechaReservaISO) {
+        const m = servicioStr.match(/^(Domingo|Mi[eé]rcoles)\s+(\d+)\s+a las\s+(.+)$/);
         if (!m) return null;
-        let [, , numDia, horaStr] = m;
-        horaStr = horaMap[horaStr] || horaStr;
+        const [, , numDia, horaStr] = m;
         const horaMatch = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
         if (!horaMatch) return null;
         let h = parseInt(horaMatch[1]);
@@ -895,23 +1003,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         const period = horaMatch[3].toUpperCase();
         if (period === 'PM' && h !== 12) h += 12;
         if (period === 'AM' && h === 12) h = 0;
-        const now = new Date();
-        const d = new Date(now.getFullYear(), now.getMonth(), parseInt(numDia), h, min, 0, 0);
-        if (d < now) {
-            const prevMonth = now.getMonth() - 1;
-            const prevYear  = prevMonth < 0 ? now.getFullYear() - 1 : now.getFullYear();
-            return new Date(prevYear, (prevMonth + 12) % 12, parseInt(numDia), h, min, 0, 0);
-        }
-        return d;
+
+        // Usar el mes/año de cuando se hizo la reserva para ubicar el día correcto
+        const ref = fechaReservaISO ? new Date(fechaReservaISO) : new Date();
+        return new Date(ref.getFullYear(), ref.getMonth(), parseInt(numDia), h, min, 0, 0);
     }
 
     function limpiarServiciosExpirados() {
         const ahora = new Date();
+        const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
         let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const antes = servicios.length;
         servicios = servicios.filter(s => {
-            const f = servicioToDate(s.servicio);
-            return !f || (ahora - f) < EXPIRY_OFFSET_MS;
+            const f = servicioToDate(s.servicio, s.fecha);
+            if (!f) return true; // si no se puede parsear, conservar
+            const expira = f.getTime() + DOS_HORAS_MS;
+            return ahora.getTime() < expira;
         });
         if (servicios.length !== antes) {
             localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
