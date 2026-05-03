@@ -1114,23 +1114,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         const ahora = new Date();
         const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
 
-        // Buscar el próximo (o actual) domingo/miércoles del mes
-        // Primero intentar esta semana, luego la siguiente
-        for (let offset = -7; offset <= 7; offset += 7) {
-            const candidato = new Date(ahora);
-            const diffDia = (cfg.diaSemana - ahora.getDay() + 7) % 7;
-            candidato.setDate(ahora.getDate() + diffDia + offset);
-            candidato.setHours(cfg.h, cfg.m, 0, 0);
+        // Calcular el día de esta semana que corresponde al servicio
+        // diffDia = 0 si hoy es ese día, >0 si aún no llegó esta semana
+        const diffDia = (cfg.diaSemana - ahora.getDay() + 7) % 7;
+        const candidato = new Date(ahora);
+        candidato.setDate(ahora.getDate() + diffDia);
+        candidato.setHours(cfg.h, cfg.m, 0, 0);
 
-            const expira = candidato.getTime() + DOS_HORAS_MS;
+        const expira = candidato.getTime() + DOS_HORAS_MS;
 
-            // Si este candidato está en el futuro o aún no expiró → no expirado
-            if (ahora.getTime() < expira) return false;
+        // Si el servicio de esta semana aún no expiró → mostrar
+        if (ahora.getTime() < expira) return false;
 
-            // Si ya expiró este candidato, seguir buscando el siguiente
-        }
-
-        // Todos los candidatos cercanos ya expiraron
+        // El servicio de esta semana ya pasó → expirado
         return true;
     }
 
