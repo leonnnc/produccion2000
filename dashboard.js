@@ -1108,14 +1108,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             'mie-1': { diaSemana: 3, h: 19, m: 0  }
         };
 
-        const cfg = SERVICIOS_INICIO[p.servicio];
-        if (!cfg) return false;
-
         const ahora = new Date();
         const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
 
+        // Evento especial: expira 2h después de su hora de inicio
+        if (p.servicio.startsWith('especial_')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const proy = proyectos.find(x => x.fecha_registro === p.servicio.replace('especial_', ''));
+            if (!proy || !proy.fecha) return false;
+            const hora = proy.hora || '00:00';
+            const fechaEvento = new Date(`${proy.fecha}T${hora}:00`);
+            return ahora.getTime() > fechaEvento.getTime() + DOS_HORAS_MS;
+        }
+
+        const cfg = SERVICIOS_INICIO[p.servicio];
+        if (!cfg) return false;
+
         // Calcular el día de esta semana que corresponde al servicio
-        // diffDia = 0 si hoy es ese día, >0 si aún no llegó esta semana
         const diffDia = (cfg.diaSemana - ahora.getDay() + 7) % 7;
         const candidato = new Date(ahora);
         candidato.setDate(ahora.getDate() + diffDia);
@@ -1138,10 +1147,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
         if (pdfs.length === 0) { panel.style.display = 'none'; return; }
 
-        const SERVICIOS_LABEL = {
-            'dom-1': '\u2600\ufe0f Domingo \u00b7 1er Servicio', 'dom-2': '\u2600\ufe0f Domingo \u00b7 2do Servicio',
-            'dom-3': '\u2600\ufe0f Domingo \u00b7 3er Servicio', 'dom-4': '\u2600\ufe0f Domingo \u00b7 4to Servicio',
-            'mie-1': '\ud83c\udf19 Mi\u00e9rcoles \u00b7 Servicio'
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const getLabel = (key) => {
+            if (!key) return 'General';
+            if (key === 'dom-1') return '☀️ Domingo · 1er Servicio';
+            if (key === 'dom-2') return '☀️ Domingo · 2do Servicio';
+            if (key === 'dom-3') return '☀️ Domingo · 3er Servicio';
+            if (key === 'dom-4') return '☀️ Domingo · 4to Servicio';
+            if (key === 'mie-1') return '🌙 Miércoles · Servicio';
+            if (key.startsWith('especial_')) {
+                const proy = proyectos.find(x => x.fecha_registro === key.replace('especial_', ''));
+                return proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+            }
+            return key;
         };
 
         // Determinar PDFs relevantes según rol
@@ -1188,7 +1206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div style="font-size:1.8rem;flex-shrink:0;">📄</div>
                         <div style="flex:1;min-width:0;">
                             <div class="recurso-titulo" style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.titulo}</div>
-                            <div style="color:var(--secondary-color);font-size:0.72rem;margin-top:2px;">${p.servicio ? (SERVICIOS_LABEL[p.servicio] || p.servicio) + (fechaReal ? ' — ' + fechaReal : '') : 'General'}</div>
+                            <div style="color:var(--secondary-color);font-size:0.72rem;margin-top:2px;">${p.servicio ? getLabel(p.servicio) + (fechaReal ? ' — ' + fechaReal : '') : 'General'}</div>
                         </div>
                     </div>
                 </div>`;
@@ -1208,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const sep = document.createElement('div');
                     sep.className = 'recurso-servicio-sep';
                     const fechaReal = getFechasServicio(key);
-                    sep.textContent = `${SERVICIOS_LABEL[key] || key}${fechaReal ? ' \u2014 ' + fechaReal : ''}`;
+                    sep.textContent = `${getLabel(key)}${fechaReal ? ' — ' + fechaReal : ''}`;
                     cont.appendChild(sep);
                 }
                 const grid = document.createElement('div');
@@ -1517,45 +1535,79 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ─── RECURSOS ────────────────────────────────────────────
 
     function getFechasServicio(servicioKey) {
+        if (!servicioKey) return '';
+
+        // Evento especial vinculado a un proyecto
+        if (servicioKey.startsWith('especial_')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const proy = proyectos.find(x => x.fecha_registro === servicioKey.replace('especial_', ''));
+            if (!proy || !proy.fecha) return '';
+            const fechaFmt = new Date(proy.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' });
+            return `${fechaFmt}${proy.hora ? ' · ' + proy.hora : ''}`;
+        }
+
         const hoy = new Date();
-        for (let i = 0; i <= 7; i++) {
+        const horaMap = { 'dom-1': '7:30 AM', 'dom-2': '11:00 AM', 'dom-3': '1:00 PM', 'dom-4': '7:00 PM', 'mie-1': '7:00 PM' };
+        const diaBuscado = servicioKey.startsWith('dom') ? 0 : servicioKey === 'mie-1' ? 3 : -1;
+        if (diaBuscado === -1) return '';
+
+        // Buscar hasta 14 días adelante para encontrar siempre el próximo día
+        for (let i = 0; i <= 14; i++) {
             const d = new Date(hoy);
             d.setDate(hoy.getDate() + i);
-            const horaMap = { 'dom-1': '7:30 AM', 'dom-2': '11:00 AM', 'dom-3': '1:00 PM', 'dom-4': '7:00 PM' };
-            if (servicioKey.startsWith('dom') && d.getDay() === 0)
-                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} \u00b7 ${horaMap[servicioKey]}`;
-            if (servicioKey === 'mie-1' && d.getDay() === 3)
-                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} \u00b7 7:00 PM`;
+            if (d.getDay() === diaBuscado) {
+                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} · ${horaMap[servicioKey]}`;
+            }
         }
         return '';
     }
 
     function poblarSelectorServicios() {
-        const sel = document.getElementById('pdf-servicio');
-        if (!sel) return;
-        sel.innerHTML = '<option value="">General</option>';
-        // Miércoles de esta semana
-        const fechaMie = getFechasServicio('mie-1');
-        if (fechaMie) {
-            const opt = document.createElement('option');
-            opt.value = 'mie-1';
-            opt.textContent = `🌙 Miércoles · Servicio — ${fechaMie}`;
-            sel.appendChild(opt);
-        }
-        // Domingo próximo — 4 servicios
-        const serviciosDom = [
-            { key: 'dom-1', label: '☀️ Domingo · 1er Servicio' },
-            { key: 'dom-2', label: '☀️ Domingo · 2do Servicio' },
-            { key: 'dom-3', label: '☀️ Domingo · 3er Servicio' },
-            { key: 'dom-4', label: '☀️ Domingo · 4to Servicio' },
-        ];
-        serviciosDom.forEach(({ key, label }) => {
-            const fecha = getFechasServicio(key);
-            if (fecha) {
+        const sels = [
+            document.getElementById('pdf-servicio'),
+            document.getElementById('er-servicio')
+        ].filter(Boolean);
+
+        sels.forEach(sel => {
+            sel.innerHTML = '<option value="">General</option>';
+
+            // Miércoles próximo
+            const fechaMie = getFechasServicio('mie-1');
+            const optMie = document.createElement('option');
+            optMie.value = 'mie-1';
+            optMie.textContent = `🌙 Miércoles · Servicio${fechaMie ? ' — ' + fechaMie : ''}`;
+            sel.appendChild(optMie);
+
+            // Domingos próximos — 4 servicios
+            const serviciosDom = [
+                { key: 'dom-1', label: '☀️ Domingo · 1er Servicio' },
+                { key: 'dom-2', label: '☀️ Domingo · 2do Servicio' },
+                { key: 'dom-3', label: '☀️ Domingo · 3er Servicio' },
+                { key: 'dom-4', label: '☀️ Domingo · 4to Servicio' },
+            ];
+            serviciosDom.forEach(({ key, label }) => {
+                const fecha = getFechasServicio(key);
                 const opt = document.createElement('option');
                 opt.value = key;
-                opt.textContent = `${label} — ${fecha}`;
+                opt.textContent = fecha ? `${label} — ${fecha}` : label;
                 sel.appendChild(opt);
+            });
+
+            // Proyectos especiales activos (no completados)
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const especiales = proyectos.filter(p => esProyectoActivo(p) && p.fecha);
+            if (especiales.length > 0) {
+                const sep = document.createElement('option');
+                sep.disabled = true;
+                sep.textContent = '── Eventos Especiales ──';
+                sel.appendChild(sep);
+                especiales.forEach(p => {
+                    const fechaFmt = new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' });
+                    const opt = document.createElement('option');
+                    opt.value = `especial_${p.fecha_registro}`;
+                    opt.textContent = `🎯 ${p.nombre} — ${fechaFmt}${p.hora ? ' · ' + p.hora : ''}`;
+                    sel.appendChild(opt);
+                });
             }
         });
     }
@@ -1684,6 +1736,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                     srvPdfs.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
                 });
 
+                // Eventos especiales
+                const gruposEspeciales = {};
+                pdfs.filter(p => p.servicio && p.servicio.startsWith('especial_')).forEach(p => {
+                    if (!gruposEspeciales[p.servicio]) gruposEspeciales[p.servicio] = [];
+                    gruposEspeciales[p.servicio].push(p);
+                });
+                Object.entries(gruposEspeciales).forEach(([key, items]) => {
+                    const proyectosAll = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                    const proy = proyectosAll.find(x => x.fecha_registro === key.replace('especial_', ''));
+                    const label = proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+                    const fechaReal = getFechasServicio(key);
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = `${label}${fechaReal ? ' — ' + fechaReal : ''}`;
+                    listaPdfs.appendChild(sep);
+                    items.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
+                });
+
                 const sinServicio = pdfs.filter(p => !p.servicio);
                 if (sinServicio.length > 0) {
                     const sep = document.createElement('div');
@@ -1750,6 +1820,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
                 const p    = pdfs[idx];
                 if (!p) return;
+                poblarSelectorServicios();
                 document.getElementById('er-titulo').value   = p.titulo;
                 document.getElementById('er-servicio').value = p.servicio || '';
                 document.getElementById('er-file').value     = '';
