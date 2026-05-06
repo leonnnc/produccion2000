@@ -874,7 +874,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
 
-        const esAdminAgenda = sesionActual?.rol === 'Admin' || sesionActual?.rol === 'SuperLider';
+        const esAdminAgenda = sesionActual?.rol === 'Admin' || sesionActual?.rol === 'SuperLider' || sesionActual?.rol === 'Lider';
 
         /**
          * Construye la tabla de servicios para un grupo de días.
@@ -993,12 +993,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     generateAgendaMonth();
 
-    // Handler para quitar reservas propias (Admin/SuperLider)
+    // Handler para quitar reservas propias (Admin/SuperLider/Lider)
     document.getElementById('agenda-dynamic-container')?.addEventListener('click', (e) => {
         const btn = e.target.closest('.btn-cancelar-reserva');
         if (!btn) return;
         const value   = btn.dataset.value;
         const usuario = btn.dataset.usuario;
+
+        // Lider solo puede quitar reservas de siervos de su área
+        if (sesion.rol === 'Lider') {
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const u = usuarios.find(x => x.nombre === usuario);
+            if (u && (u.area || '').toLowerCase() !== (sesion.area || '').toLowerCase()) {
+                showNotification('Solo puedes quitar reservas de siervos de tu área.', 'error');
+                return;
+            }
+        }
+
         confirmar('Quitar reserva', `¿Quitar la reserva de "${usuario}" para "${value}"?`, () => {
             let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
             servicios = servicios.filter(s => !(s.servicio === value && s.usuario === usuario));
