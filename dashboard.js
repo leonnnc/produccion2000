@@ -874,6 +874,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
 
+        const esAdminAgenda = sesionActual?.rol === 'Admin' || sesionActual?.rol === 'SuperLider';
+
         /**
          * Construye la tabla de servicios para un grupo de días.
          * Cada columna = un día, cada fila = un horario.
@@ -907,9 +909,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const isReserved = misReservas.has(value);
 
                     if (expirado) {
-                        // Servicio ya pasó — mostrar como finalizado, no interactuable
                         t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;opacity:0.35;">
                             <span class="time-label compact-label" style="cursor:default;font-size:0.75rem;color:var(--text-muted);">Finalizado</span>
+                        </td>`;
+                    } else if (isReserved && esAdminAgenda) {
+                        // Admin/SuperLider: mostrar ✓ con botón de cancelar
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                                <span class="time-label compact-label" style="background:rgba(46,213,115,0.2);border-color:#2ed573;color:#2ed573;cursor:default;">✓ Reservado</span>
+                                <button class="btn-cancelar-reserva" data-value="${value}" data-usuario="${userName}" style="font-size:0.65rem;padding:2px 8px;background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4);color:#ff4757;border-radius:6px;cursor:pointer;">✕ Quitar</button>
+                            </div>
                         </td>`;
                     } else {
                         t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
@@ -983,6 +992,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, msHasta + 1000); // +1s de margen
     }
     generateAgendaMonth();
+
+    // Handler para quitar reservas propias (Admin/SuperLider)
+    document.getElementById('agenda-dynamic-container')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-cancelar-reserva');
+        if (!btn) return;
+        const value   = btn.dataset.value;
+        const usuario = btn.dataset.usuario;
+        confirmar('Quitar reserva', `¿Quitar la reserva de "${usuario}" para "${value}"?`, () => {
+            let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            servicios = servicios.filter(s => !(s.servicio === value && s.usuario === usuario));
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            showNotification(`Reserva de "${usuario}" eliminada.`);
+            generateAgendaMonth();
+            renderReservasSemana();
+            actualizarEstadisticas();
+        });
+    });
 
     document.getElementById('btn-ver-reservas')?.addEventListener('click', () => {
         const allDays   = getMonthDays(agendaMonthOffset);
