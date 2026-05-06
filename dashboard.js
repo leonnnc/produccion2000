@@ -207,7 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const sets = [
             { key: 'usuarios_registrados', statId: 'stat-usuarios',  labelId: 'stat-usuarios-label',  empty: 'Sin registros', filled: n => `${n} activos`,
               filter: arr => arr.filter(u => u.correo?.toLowerCase() !== ADMIN_MAESTRO) },
-            { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin proyectos', filled: n => `${n} en total` },
+            { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin eventos', filled: n => `${n} en total` },
             { key: 'servicios_reservados', statId: 'stat-servicios', labelId: 'stat-servicios-label', empty: 'Sin reservas',  filled: n => `${n} este mes` },
         ];
         sets.forEach(({ key, statId, labelId, empty, filled, filter }) => {
@@ -591,7 +591,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // ── Render activos ──
         lista.innerHTML = '';
         if (activosFiltrados.length === 0) {
-            lista.innerHTML = '<p style="color:var(--text-muted);padding:16px 0;">No hay proyectos activos.</p>';
+            lista.innerHTML = '<p style="color:var(--text-muted);padding:16px 0;">No hay eventos especiales activos.</p>';
         } else {
             [...activosFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach((p, i) => {
                 const estado    = calcularEstadoProyecto(p);
@@ -1328,7 +1328,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let proyFiltrados;
         if (esAdmin) {
             proyFiltrados = proyectos.filter(p => esProyectoActivo(p));
-            if (titProy) titProy.textContent = 'Todos los Proyectos';
+            if (titProy) titProy.textContent = 'Todos los Eventos Especiales';
         } else {
             proyFiltrados = proyectos.filter(p => {
                 if (!esProyectoActivo(p)) return false;
@@ -1336,10 +1336,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (p.areas)     return p.areas.toLowerCase().includes(areaUsuario);
                 return false;
             });
-            if (titProy) titProy.textContent = 'Mis Proyectos';
+            if (titProy) titProy.textContent = 'Mis Eventos Especiales';
         }
 
-        if (titTarea) titTarea.textContent = esAdmin ? 'Proyectos' : 'Mis Proyectos';
+        if (titTarea) titTarea.textContent = esAdmin ? 'Eventos Especiales' : 'Mis Eventos Especiales';
         listaTarea.innerHTML = '';
 
         listaProy.innerHTML = '';
@@ -1358,7 +1358,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${proximoServicio}
                 </div></li>`;
             } else {
-                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin proyectos activos.</span></li>';
+                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin eventos especiales activos.</span></li>';
             }
         } else {
             [...proyFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach(p => {
