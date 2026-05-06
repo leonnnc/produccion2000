@@ -1265,24 +1265,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const renderPdfCard = (p) => {
             const idx = pdfs.indexOf(p);
-            const fechaReal = p.servicio ? getFechasServicio(p.servicio) : '';
-            const card = document.createElement('div');
-            card.className = 'recurso-card';
-            card.style.cssText = 'cursor:pointer;flex-direction:column;align-items:flex-start;padding:12px;gap:6px;';
-            card.innerHTML = `
-                <div class="btn-abrir-doc-dash" data-idx="${idx}" style="cursor:pointer;width:100%;display:flex;flex-direction:column;gap:6px;">
-                    <div style="display:flex;align-items:center;gap:10px;">
-                        <div style="font-size:1.8rem;flex-shrink:0;">📄</div>
-                        <div style="flex:1;min-width:0;">
-                            <div class="recurso-titulo" style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.titulo}</div>
-                            <div style="color:var(--secondary-color);font-size:0.72rem;margin-top:2px;">${p.servicio ? getLabel(p.servicio) + (fechaReal ? ' — ' + fechaReal : '') : 'General'}</div>
-                        </div>
-                    </div>
-                </div>`;
-            return card;
+            const row = document.createElement('div');
+            row.className = 'btn-abrir-doc-dash';
+            row.dataset.idx = idx;
+            row.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;transition:background 0.2s;';
+            row.onmouseenter = () => row.style.background = 'rgba(255,255,255,0.05)';
+            row.onmouseleave = () => row.style.background = 'transparent';
+            row.innerHTML = `
+                <span style="font-size:1rem;flex-shrink:0;">📄</span>
+                <span style="font-size:0.85rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
+                <span style="font-size:0.7rem;color:var(--secondary-color);white-space:nowrap;flex-shrink:0;">Ver →</span>`;
+            return row;
         };
 
-        // Activos agrupados por servicio
+        // Activos agrupados por servicio — lista compacta
         if (activos.length > 0) {
             const grupos = {};
             activos.forEach(p => {
@@ -1298,10 +1294,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     sep.textContent = `${getLabel(key)}${fechaReal ? ' — ' + fechaReal : ''}`;
                     cont.appendChild(sep);
                 }
-                const grid = document.createElement('div');
-                grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:8px;';
-                items.forEach(p => grid.appendChild(renderPdfCard(p)));
-                cont.appendChild(grid);
+                const lista = document.createElement('div');
+                lista.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin-bottom:4px;';
+                items.forEach(p => lista.appendChild(renderPdfCard(p)));
+                cont.appendChild(lista);
             });
         }
 
