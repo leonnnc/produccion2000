@@ -266,17 +266,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         let extra = '';
         if (u.rol === 'Siervo') {
             extra = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
-                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>
-                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
+                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
         } else if (u.rol === 'Lider') {
             extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
-                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>
-                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
+                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
         } else if (u.rol === 'SuperLider') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>
-                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>`;
         } else if (u.rol === 'Admin') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;">↓ SuperLíder</button>`;
+            // Admin oculto — sin botones de cambio de rol
+            extra = '';
         }
         return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
     }
@@ -325,8 +323,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!usuariosContainer) return;
         usuariosContainer.innerHTML = '';
         let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-        // Ocultar el admin maestro para todos
-        usuarios = usuarios.filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO);
+        // Ocultar el admin maestro y todos los usuarios con rol Admin
+        usuarios = usuarios.filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO && u.rol !== 'Admin');
         
         // Si es Líder, solo mostrar siervos de su área
         if (esLider) {
@@ -389,8 +387,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (e.target.classList.contains('btn-upgrade')) {
                 const targetRole = e.target.getAttribute('data-role');
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
-                const roleMap = { 'admin': 'Admin', 'superlider': 'SuperLíder', 'lider': 'Líder', 'siervo': 'Siervo' };
-                const nomRolVer = roleMap[targetRole] || 'Siervo';
+                const roleMap = { 'superlider': 'SuperLider', 'lider': 'Lider', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole];
+                if (!nomRolVer) return; // bloquear cualquier intento de asignar Admin
                 confirmar('Cambiar rol', `¿Ascender a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
@@ -402,8 +401,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (e.target.classList.contains('btn-downgrade-btn')) {
                 const targetRole = e.target.getAttribute('data-role');
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
-                const roleMap = { 'superlider': 'SuperLíder', 'lider': 'Líder', 'siervo': 'Siervo' };
-                const nomRolVer = roleMap[targetRole] || 'Siervo';
+                const roleMap = { 'superlider': 'SuperLider', 'lider': 'Lider', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole];
+                if (!nomRolVer) return; // bloquear cualquier intento de asignar Admin
                 confirmar('Cambiar rol', `¿Degradar a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
