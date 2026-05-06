@@ -1155,12 +1155,6 @@ body {
     border: 1px solid rgba(255, 71, 87, 0.3);
 }
 
-.role-staff {
-    background: rgba(79, 172, 254, 0.15);
-    color: #4facfe;
-    border: 1px solid rgba(79, 172, 254, 0.3);
-}
-
 .role-siervo {
     background: rgba(46, 213, 115, 0.15);
     color: #2ed573;
