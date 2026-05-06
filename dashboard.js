@@ -1278,27 +1278,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             return row;
         };
 
-        // Activos agrupados por servicio — lista compacta
+        // Todos los activos en un grid compacto de 2 columnas, sin separadores
         if (activos.length > 0) {
-            const grupos = {};
-            activos.forEach(p => {
-                const key = p.servicio || 'general';
-                if (!grupos[key]) grupos[key] = [];
-                grupos[key].push(p);
-            });
-            Object.entries(grupos).forEach(([key, items]) => {
-                if (key !== 'general') {
-                    const sep = document.createElement('div');
-                    sep.className = 'recurso-servicio-sep';
-                    const fechaReal = getFechasServicio(key);
-                    sep.textContent = `${getLabel(key)}${fechaReal ? ' — ' + fechaReal : ''}`;
-                    cont.appendChild(sep);
-                }
-                const lista = document.createElement('div');
-                lista.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:4px;';
-                items.forEach(p => lista.appendChild(renderPdfCard(p)));
-                cont.appendChild(lista);
-            });
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px;';
+            activos.forEach(p => grid.appendChild(renderPdfCard(p)));
+            cont.appendChild(grid);
         }
 
         // Click handler para abrir modal
