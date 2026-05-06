@@ -1280,8 +1280,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             row.onmouseleave = () => row.style.background = 'transparent';
             row.innerHTML = `
                 <span style="font-size:0.9rem;flex-shrink:0;">📄</span>
-                <span style="font-size:0.82rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
                 ${badge}
+                <span style="font-size:0.82rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
                 <span style="font-size:0.7rem;color:var(--secondary-color);white-space:nowrap;flex-shrink:0;">Ver →</span>`;
             return row;
         };
