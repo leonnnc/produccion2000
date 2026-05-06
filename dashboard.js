@@ -133,7 +133,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const displayRole = document.querySelector('.user-role');
-    if (displayRole) displayRole.textContent = sesion.rol === 'Admin' ? 'Administrador' : 'Siervo';
+    if (displayRole) {
+        const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+        displayRole.textContent = roleMap[sesion.rol] || 'Siervo';
+    }
 
     const avatarEl = document.querySelector('.user-info .avatar');
     if (avatarEl) {
@@ -143,11 +146,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         avatarEl.style.fontWeight = '800';
     }
 
-    const esAdmin = sesion.rol === 'Admin';
+    const esAdmin = sesion.rol === 'Admin' || sesion.rol === 'SuperLider';
+    const esLider = sesion.rol === 'Lider';
 
     const permitido = {
-        'Admin':  ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
-        'Siervo': ['dashboard-view','agenda-view','recursos-view']
+        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
+        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
+        'Lider':      ['dashboard-view','agenda-view','recursos-view'],
+        'Siervo':     ['dashboard-view','agenda-view','recursos-view']
     };
     const acceso = permitido[sesion.rol] || permitido['Siervo'];
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
@@ -221,12 +227,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (bienvenidaContent) {
         const hora = new Date().getHours();
         const momento = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
-        const rolLabel = sesion.rol === 'Admin' ? 'Administrador' : 'Siervo';
-        const rolColor = sesion.rol === 'Admin' ? '#ff4757' : '#2ed573';
+        const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+        const rolLabel = roleMap[sesion.rol] || 'Siervo';
+        const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+        const rolColor = roleColors[sesion.rol] || '#2ed573';
 
         const accesosPorRol = {
-            'Admin':  ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-            'Siervo': ['Dashboard', 'Agenda', 'Recursos']
+            'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+            'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+            'Lider':      ['Dashboard', 'Agenda', 'Recursos'],
+            'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
         };
         const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
 
@@ -254,17 +264,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
         let extra = '';
         if (u.rol === 'Siervo') {
-            extra = `<button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ Admin</button>`;
+            extra = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
+                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>
+                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
+        } else if (u.rol === 'Lider') {
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
+                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>
+                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
+        } else if (u.rol === 'SuperLider') {
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>
+                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff4757;border-color:rgba(255,71,87,0.4);">↑ Admin</button>`;
         } else if (u.rol === 'Admin') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>`;
+            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;">↓ SuperLíder</button>`;
         }
         return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
     }
 
     function crearCardUsuario(u) {
-        const rolClass = u.rol === 'Admin' ? 'role-admin' : 'role-siervo';
+        const roleClasses = { 'Admin': 'role-admin', 'SuperLider': 'role-superlider', 'Lider': 'role-lider', 'Siervo': 'role-siervo' };
+        const rolClass = roleClasses[u.rol] || 'role-siervo';
         const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
-        const rolColor = u.rol === 'Admin' ? '#ff4757' : '#2ed573';
+        const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+        const rolColor = roleColors[u.rol] || '#2ed573';
         const fechaReg = u.fecha ? new Date(u.fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '—';
         const card = document.createElement('div');
         card.dataset.correo = u.correo;
@@ -353,7 +374,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (e.target.classList.contains('btn-upgrade')) {
                 const targetRole = e.target.getAttribute('data-role');
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
-                const nomRolVer = 'Admin';
+                const roleMap = { 'admin': 'Admin', 'superlider': 'SuperLíder', 'lider': 'Líder', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole] || 'Siervo';
                 confirmar('Cambiar rol', `¿Ascender a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
@@ -363,8 +385,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
             if (e.target.classList.contains('btn-downgrade-btn')) {
+                const targetRole = e.target.getAttribute('data-role');
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
-                const nomRolVer = 'Siervo';
+                const roleMap = { 'superlider': 'SuperLíder', 'lider': 'Líder', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole] || 'Siervo';
                 confirmar('Cambiar rol', `¿Degradar a "${nombre}" como ${nomRolVer}?`, () => {
                     const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                     const idx = usuarios.findIndex(u => u.correo === correoUsuario);
@@ -1628,7 +1652,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function puedeSubirRecursos() {
-        if (esAdmin) return true;
+        if (esAdmin || esLider) return true;
         const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
         return Object.values(lideres).includes(sesion.nombre);
     }

@@ -1155,6 +1155,18 @@ body {
     border: 1px solid rgba(255, 71, 87, 0.3);
 }
 
+.role-superlider {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.role-lider {
+    background: rgba(79, 172, 254, 0.15);
+    color: #4facfe;
+    border: 1px solid rgba(79, 172, 254, 0.3);
+}
+
 .role-siervo {
     background: rgba(46, 213, 115, 0.15);
     color: #2ed573;
