@@ -1318,10 +1318,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ─── DASHBOARD: PROYECTOS Y TAREAS POR ROL ───────────────
     function renderDashboardProyectosYTareas() {
         const listaProy  = document.getElementById('dash-proyectos-list');
-        const listaTarea = document.getElementById('dash-tareas-list');
         const titProy    = document.getElementById('dash-proyectos-titulo');
-        const titTarea   = document.getElementById('dash-tareas-titulo');
-        if (!listaProy || !listaTarea) return;
+        if (!listaProy) return;
         const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
         const areaUsuario = (sesion.area || '').toLowerCase();
 
@@ -1338,9 +1336,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             if (titProy) titProy.textContent = 'Mis Eventos';
         }
-
-        if (titTarea) titTarea.textContent = esAdmin ? 'Próximos Eventos' : 'Mis Eventos';
-        listaTarea.innerHTML = '';
 
         listaProy.innerHTML = '';
         if (proyFiltrados.length === 0) {
