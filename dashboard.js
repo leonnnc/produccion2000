@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const permitido = {
         'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
         'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
-        'Lider':      ['dashboard-view','agenda-view','recursos-view'],
+        'Lider':      ['dashboard-view','usuarios-view','agenda-view','recursos-view'],
         'Siervo':     ['dashboard-view','agenda-view','recursos-view']
     };
     const acceso = permitido[sesion.rol] || permitido['Siervo'];
@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const accesosPorRol = {
             'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
             'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-            'Lider':      ['Dashboard', 'Agenda', 'Recursos'],
+            'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
             'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
         };
         const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
@@ -258,6 +258,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const usuariosContainer = document.getElementById('usuarios-cards-container');
 
     function accionesParaRol(u) {
+        // Solo Admin y SuperLider pueden editar usuarios
         if (!esAdmin) return '';
         const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
         const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;" title="Resetear contraseña">🔑 Reset</button>`;
@@ -326,6 +327,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         // Ocultar el admin maestro para todos
         usuarios = usuarios.filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO);
+        
+        // Si es Líder, solo mostrar siervos de su área
+        if (esLider) {
+            const areaLider = (sesion.area || '').toLowerCase();
+            usuarios = usuarios.filter(u => u.rol === 'Siervo' && (u.area || '').toLowerCase() === areaLider);
+        }
+        
         if (filtroRol)  usuarios = usuarios.filter(u => u.rol === filtroRol);
         if (filtroArea) usuarios = usuarios.filter(u => (u.area || '').toLowerCase() === filtroArea.toLowerCase());
         if (usuarios.length === 0) {
@@ -335,6 +343,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
     cargarTablaUsuarios();
+
+    // Si es Líder: ocultar filtros y mostrar título con su área
+    if (esLider) {
+        document.getElementById('filtro-rol')?.closest('div')?.style && (document.getElementById('filtro-rol').closest('div[style]').style.display = 'none');
+        const tituloEl = document.querySelector('#usuarios-view .panel-heading h2');
+        if (tituloEl) tituloEl.textContent = `Siervos de ${sesion.area || 'mi área'}`;
+    }
 
     document.getElementById('filtro-rol')?.addEventListener('change',  e => cargarTablaUsuarios(e.target.value, document.getElementById('filtro-area').value));
     document.getElementById('filtro-area')?.addEventListener('change', e => cargarTablaUsuarios(document.getElementById('filtro-rol').value, e.target.value));
