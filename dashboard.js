@@ -1295,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cont.appendChild(sep);
                 }
                 const lista = document.createElement('div');
-                lista.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin-bottom:4px;';
+                lista.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:4px;';
                 items.forEach(p => lista.appendChild(renderPdfCard(p)));
                 cont.appendChild(lista);
             });
