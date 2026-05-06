@@ -1328,7 +1328,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let proyFiltrados;
         if (esAdmin) {
             proyFiltrados = proyectos.filter(p => esProyectoActivo(p));
-            if (titProy) titProy.textContent = 'Todos los Eventos Especiales';
+            if (titProy) titProy.textContent = 'Próximos Eventos';
         } else {
             proyFiltrados = proyectos.filter(p => {
                 if (!esProyectoActivo(p)) return false;
@@ -1336,10 +1336,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (p.areas)     return p.areas.toLowerCase().includes(areaUsuario);
                 return false;
             });
-            if (titProy) titProy.textContent = 'Mis Eventos Especiales';
+            if (titProy) titProy.textContent = 'Mis Eventos';
         }
 
-        if (titTarea) titTarea.textContent = esAdmin ? 'Eventos Especiales' : 'Mis Eventos Especiales';
+        if (titTarea) titTarea.textContent = esAdmin ? 'Próximos Eventos' : 'Mis Eventos';
         listaTarea.innerHTML = '';
 
         listaProy.innerHTML = '';
