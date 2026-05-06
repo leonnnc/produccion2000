@@ -256,11 +256,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
         let extra = '';
         if (u.rol === 'Siervo') {
-            extra = `<button class="btn-primary btn-small btn-upgrade" data-role="staff" style="padding:5px 10px;font-size:0.75rem;background:rgba(79,172,254,0.2);border:1px solid var(--primary-color);">↑ Staff</button>
-                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">↑ Admin</button>`;
+            extra = `<button class="btn-secondary btn-upgrade" data-role="staff" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Staff</button>
+                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ Admin</button>`;
         } else if (u.rol === 'Staff') {
             extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
-                     <button class="btn-primary btn-small btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;background:rgba(255,107,107,0.2);border:1px solid #ff6b6b;color:#ff6b6b;">↑ Admin</button>`;
+                     <button class="btn-secondary btn-upgrade" data-role="admin" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ Admin</button>`;
         } else if (u.rol === 'Admin') {
             extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="staff" style="padding:5px 10px;font-size:0.75rem;">↓ Staff</button>`;
         }
@@ -271,6 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const rolClass = u.rol === 'Admin' ? 'role-admin' : u.rol === 'Staff' ? 'role-staff' : 'role-siervo';
         const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
         const rolColor = u.rol === 'Admin' ? '#ff4757' : u.rol === 'Staff' ? '#4facfe' : '#2ed573';
+        const fechaReg = u.fecha ? new Date(u.fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '—';
         const card = document.createElement('div');
         card.dataset.correo = u.correo;
         card.className = 'usuario-card';
@@ -284,9 +285,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>
                 <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
             </div>
-            <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;">
+            <div style="display:flex;gap:12px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;">
                 <span>🎯 ${u.area || '—'}</span>
                 <span>📞 ${u.telefono || '—'}</span>
+                <span>📅 ${fechaReg}</span>
             </div>
             ${accionesParaRol(u)}`;
         return card;
