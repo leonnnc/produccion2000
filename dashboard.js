@@ -1265,15 +1265,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const renderPdfCard = (p) => {
             const idx = pdfs.indexOf(p);
+            const servicioLabel = {
+                'dom-1': '1er Serv.', 'dom-2': '2do Serv.', 'dom-3': '3er Serv.', 'dom-4': '4to Serv.',
+                'mie-1': 'Miérc.'
+            };
+            const badge = p.servicio && servicioLabel[p.servicio]
+                ? `<span style="font-size:0.65rem;background:rgba(79,172,254,0.15);border:1px solid rgba(79,172,254,0.3);color:var(--primary-color);border-radius:20px;padding:1px 6px;white-space:nowrap;flex-shrink:0;">${servicioLabel[p.servicio]}</span>`
+                : p.servicio?.startsWith('especial_') ? `<span style="font-size:0.65rem;background:rgba(255,165,0,0.15);border:1px solid rgba(255,165,0,0.3);color:#ffa500;border-radius:20px;padding:1px 6px;white-space:nowrap;flex-shrink:0;">Especial</span>` : '';
             const row = document.createElement('div');
             row.className = 'btn-abrir-doc-dash';
             row.dataset.idx = idx;
-            row.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;transition:background 0.2s;';
+            row.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;transition:background 0.2s;';
             row.onmouseenter = () => row.style.background = 'rgba(255,255,255,0.05)';
             row.onmouseleave = () => row.style.background = 'transparent';
             row.innerHTML = `
-                <span style="font-size:1rem;flex-shrink:0;">📄</span>
-                <span style="font-size:0.85rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
+                <span style="font-size:0.9rem;flex-shrink:0;">📄</span>
+                <span style="font-size:0.82rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
+                ${badge}
                 <span style="font-size:0.7rem;color:var(--secondary-color);white-space:nowrap;flex-shrink:0;">Ver →</span>`;
             return row;
         };
