@@ -263,6 +263,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
         const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;" title="Resetear contraseña">🔑 Reset</button>`;
         const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
+
+        // Botón asignar/quitar líder de área
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const esLiderDeArea = u.area && lideres[u.area] === u.nombre;
+        const liderBtn = u.area ? (esLiderDeArea
+            ? `<button class="btn-secondary btn-quitar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffa500;border-color:rgba(255,165,0,0.4);" title="Quitar como líder de ${u.area}">👑 Quitar Líder</button>`
+            : `<button class="btn-secondary btn-asignar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffd166;border-color:rgba(255,209,102,0.4);" title="Asignar como líder de ${u.area}">👑 Líder de ${u.area}</button>`
+        ) : '';
+
         let extra = '';
         if (u.rol === 'Siervo') {
             extra = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
@@ -273,10 +282,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else if (u.rol === 'SuperLider') {
             extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>`;
         } else if (u.rol === 'Admin') {
-            // Admin oculto — sin botones de cambio de rol
             extra = '';
         }
-        return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${extra}${delBtn}</div>`;
+        return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${liderBtn}${extra}${delBtn}</div>`;
     }
 
     function crearCardUsuario(u) {
@@ -382,6 +390,34 @@ document.addEventListener('DOMContentLoaded', async () => {
                     localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
                     cargarTablaUsuarios(); actualizarEstadisticas();
                     showNotification(`Usuario "${nombre}" eliminado.`);
+                });
+            }
+            if (e.target.classList.contains('btn-asignar-lider')) {
+                const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const u = usuarios.find(x => x.correo === correoUsuario);
+                if (!u || !u.area) return;
+                const nombre = u.nombre;
+                confirmar('Asignar Líder', `¿Asignar a "${nombre}" como líder de ${u.area}?`, () => {
+                    const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                    lideres[u.area] = nombre;
+                    localStorage.setItem('lideres_area', JSON.stringify(lideres));
+                    cargarTablaUsuarios(document.getElementById('filtro-rol')?.value || '', document.getElementById('filtro-area')?.value || '');
+                    cargarLideres();
+                    showNotification(`${nombre} es ahora líder de ${u.area}.`);
+                });
+            }
+            if (e.target.classList.contains('btn-quitar-lider')) {
+                const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const u = usuarios.find(x => x.correo === correoUsuario);
+                if (!u || !u.area) return;
+                const nombre = u.nombre;
+                confirmar('Quitar Líder', `¿Quitar a "${nombre}" como líder de ${u.area}?`, () => {
+                    const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                    delete lideres[u.area];
+                    localStorage.setItem('lideres_area', JSON.stringify(lideres));
+                    cargarTablaUsuarios(document.getElementById('filtro-rol')?.value || '', document.getElementById('filtro-area')?.value || '');
+                    cargarLideres();
+                    showNotification(`${nombre} ya no es líder de ${u.area}.`);
                 });
             }
             if (e.target.classList.contains('btn-upgrade')) {
