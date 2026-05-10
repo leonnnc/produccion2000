@@ -258,33 +258,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     const usuariosContainer = document.getElementById('usuarios-cards-container');
 
     function accionesParaRol(u) {
-        // Solo Admin y SuperLider pueden editar usuarios
         if (!esAdmin) return '';
         const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
-        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;" title="Resetear contraseña">🔑 Reset</button>`;
+        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;">🔑 Reset</button>`;
         const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
 
-        // Botón asignar/quitar líder de área
+        // Botón líder de área
         const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
         const esLiderDeArea = u.area && lideres[u.area] === u.nombre;
         const liderBtn = u.area ? (esLiderDeArea
-            ? `<button class="btn-secondary btn-quitar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffa500;border-color:rgba(255,165,0,0.4);" title="Quitar como líder de ${u.area}">👑 Quitar Líder</button>`
-            : `<button class="btn-secondary btn-asignar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffd166;border-color:rgba(255,209,102,0.4);" title="Asignar como líder de ${u.area}">👑 Líder de ${u.area}</button>`
+            ? `<button class="btn-secondary btn-quitar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffa500;border-color:rgba(255,165,0,0.4);">👑 Quitar Líder</button>`
+            : `<button class="btn-secondary btn-asignar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffd166;border-color:rgba(255,209,102,0.4);">👑 Asignar Líder</button>`
         ) : '';
 
-        let extra = '';
+        // Botones de jerarquía
+        let jerarquia = '';
         if (u.rol === 'Siervo') {
-            extra = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
-                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
+            jerarquia = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
+                         <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
         } else if (u.rol === 'Lider') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
-                     <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
+            jerarquia = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
+                         <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
         } else if (u.rol === 'SuperLider') {
-            extra = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>`;
-        } else if (u.rol === 'Admin') {
-            extra = '';
+            jerarquia = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>`;
         }
-        return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${editBtn}${resetBtn}${liderBtn}${extra}${delBtn}</div>`;
+
+        return `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);">
+                ${editBtn}${resetBtn}${liderBtn}
+                <div style="flex:1;"></div>
+                ${delBtn}
+            </div>
+            ${jerarquia ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${jerarquia}</div>` : ''}`;
     }
 
     function crearCardUsuario(u) {
@@ -294,20 +299,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
         const rolColor = roleColors[u.rol] || '#2ed573';
         const fechaReg = u.fecha ? new Date(u.fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '—';
+
+        // Indicador de líder de área
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const esLiderDeArea = u.area && lideres[u.area] === u.nombre;
+        const liderIndicador = esLiderDeArea
+            ? ` <span style="font-size:0.7rem;background:rgba(255,209,102,0.15);border:1px solid rgba(255,209,102,0.4);color:#ffd166;border-radius:20px;padding:1px 8px;">👑 Líder</span>`
+            : '';
+
         const card = document.createElement('div');
         card.dataset.correo = u.correo;
         card.className = 'usuario-card';
-        card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;transition:border-color 0.2s;';
+        card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;transition:border-color 0.2s;';
         card.innerHTML = `
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;gap:12px;">
                 <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;">${iniciales}</div>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}</div>
+                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}${liderIndicador}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.correo}</div>
                 </div>
                 <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
             </div>
-            <div style="display:flex;gap:12px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;">
+            <div style="display:flex;gap:14px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;padding-left:4px;">
                 <span>🎯 ${u.area || '—'}</span>
                 <span>📞 ${u.telefono || '—'}</span>
                 <span>📅 ${fechaReg}</span>
@@ -315,6 +328,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             ${accionesParaRol(u)}`;
         return card;
     }
+
 
     // Migrar áreas legacy en localStorage (minúsculas → formato correcto)
     (function migrarAreas() {
