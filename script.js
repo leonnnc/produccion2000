@@ -4,6 +4,11 @@
 import { DB } from './firebase.js';
 import { hashPassword, showNotification } from './utils.js';
 
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ─── ADMIN POR DEFECTO ───────────────────────────────────
 async function crearAdminPorDefecto() {
     const usuarios = await DB.getUsuarios();

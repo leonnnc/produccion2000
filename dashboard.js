@@ -4,6 +4,11 @@
 import { DB } from './firebase.js';
 import { hashPassword, showNotification } from './utils.js';
 
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ─── CAPA DE COMPATIBILIDAD localStorage ↔ Firebase ─────
 // Sincroniza Firebase → localStorage al cargar, y localStorage → Firebase al escribir
 const SYNC_KEYS = [
