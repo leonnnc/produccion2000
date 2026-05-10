@@ -1193,19 +1193,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         const cfg = SERVICIOS_INICIO[p.servicio];
         if (!cfg) return false;
 
-        // Calcular el día de esta semana que corresponde al servicio
-        const diffDia = (cfg.diaSemana - ahora.getDay() + 7) % 7;
-        const candidato = new Date(ahora);
-        candidato.setDate(ahora.getDate() + diffDia);
+        // Usar la fecha de subida del PDF para encontrar el domingo/miércoles
+        // al que pertenece — no el próximo desde hoy
+        const fechaSubida = p.fecha ? new Date(p.fecha) : ahora;
+
+        // Buscar el domingo/miércoles más cercano ANTES o EN la fecha de subida
+        // (el servicio al que fue asignado)
+        const candidato = new Date(fechaSubida);
+        // Retroceder hasta encontrar el día correcto de la semana
+        while (candidato.getDay() !== cfg.diaSemana) {
+            candidato.setDate(candidato.getDate() - 1);
+        }
         candidato.setHours(cfg.h, cfg.m, 0, 0);
 
         const expira = candidato.getTime() + DOS_HORAS_MS;
 
-        // Si el servicio de esta semana aún no expiró → mostrar
-        if (ahora.getTime() < expira) return false;
-
-        // El servicio de esta semana ya pasó → expirado
-        return true;
+        // Si ya pasaron 2h desde ese servicio → expirado
+        return ahora.getTime() > expira;
     }
 
     function renderDashProgramacion() {
