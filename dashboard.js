@@ -1980,21 +1980,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderRecursos(); // Cargar al inicio también
     poblarSelectorServicios(); // Poblar selector con fechas reales
 
-    // ─── AJUSTES: LIDERES DE AREA (solo Admin) ───────────────
+    // ─── LIDERES DE AREA (vista Usuarios, solo Admin/SuperLider) ─
     const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Switchers','Streaming','Luces','Diseño','Edición','Protocolos','Cámaras'];
 
     function cargarLideres() {
         const panel = document.getElementById('lideres-container');
         if (!panel) return;
-        if (!esAdmin) { document.getElementById('ajustes-lideres-panel')?.style && (document.getElementById('ajustes-lideres-panel').style.display = 'none'); return; }
-        const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
-        const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        if (!esAdmin) {
+            document.getElementById('ajustes-lideres-panel')?.style && (document.getElementById('ajustes-lideres-panel').style.display = 'none');
+            return;
+        }
+        const lideres  = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         panel.innerHTML = '';
         AREAS.forEach(area => {
             const row = document.createElement('div');
             row.className = 'area-row';
             const optsHtml = `<option value="">Sin líder</option>` +
-                usuarios.map(u => `<option value="${u.nombre}" ${lideres[area] === u.nombre ? 'selected' : ''}>${u.nombre} (${u.area})</option>`).join('');
+                usuarios.filter(u => u.rol !== 'Admin').map(u =>
+                    `<option value="${u.nombre}" ${lideres[area] === u.nombre ? 'selected' : ''}>${u.nombre} (${u.area || '—'})</option>`
+                ).join('');
             row.innerHTML = `
                 <span class="area-nombre">${area}</span>
                 <select class="filter-select lider-select" data-area="${area}" style="flex:1;max-width:220px;">${optsHtml}</select>`;
@@ -2010,6 +2015,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         localStorage.setItem('lideres_area', JSON.stringify(lideres));
         showNotification('Líderes de área guardados.');
+    });
+
+    // Recargar líderes al entrar a la vista de usuarios
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'usuarios-view') {
+            link.addEventListener('click', () => setTimeout(cargarLideres, 50));
+        }
     });
 
     // ─── AJUSTES: MODO CLARO/OSCURO ──────────────────────────

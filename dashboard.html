@@ -162,6 +162,15 @@
                     </div>
                     <div id="usuarios-cards-container" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:8px;"></div>
                 </div>
+                <!-- Líderes de área — solo Admin/SuperLider -->
+                <div class="details-panel glass-panel" id="ajustes-lideres-panel" style="margin-top:20px;">
+                    <div class="panel-heading" style="margin-bottom:16px;">
+                        <h3>👑 Líderes de Área</h3>
+                        <button class="btn-primary" id="btn-guardar-lideres" style="width:auto;padding:8px 20px;margin-top:0;font-size:0.85rem;">Guardar</button>
+                    </div>
+                    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">Asigna el líder responsable de cada área.</p>
+                    <div id="lideres-container" class="areas-container"></div>
+                </div>
             </div>
 
             <!-- VISTA: PROYECTOS -->
@@ -324,15 +333,6 @@
                             <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px;">Alterna entre modo oscuro y claro</p>
                         </div>
                         <button class="btn-secondary" id="toggle-theme" style="padding:8px 16px;">☀️ Modo Claro</button>
-                    </div>
-                    <!-- Líderes de área — solo Admin -->
-                    <div id="ajustes-lideres-panel">
-                        <div class="panel-heading" style="margin-bottom:16px;">
-                            <h3>Líderes de Área</h3>
-                            <button class="btn-primary" id="btn-guardar-lideres" style="width:auto;padding:8px 20px;margin-top:0;font-size:0.85rem;">Guardar</button>
-                        </div>
-                        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">Asigna el líder responsable de cada área. Solo usuarios registrados.</p>
-                        <div id="lideres-container" class="areas-container"></div>
                     </div>
                     <!-- Perfil de usuario — todos los roles -->
                     <div id="ajustes-perfil-panel" style="margin-top:24px;border-top:1px solid var(--panel-border);padding-top:20px;">
