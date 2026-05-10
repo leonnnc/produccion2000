@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         bienvenidaContent.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
-                <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);">
+                <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
                     ${sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase()}
                 </div>
                 <div>
@@ -257,6 +257,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </div>
                 </div>
             </div>`;
+
+        // Abrir modal de perfil al hacer clic en el avatar
+        setTimeout(() => {
+            document.getElementById('btn-abrir-perfil')?.addEventListener('click', () => abrirModalPerfil());
+        }, 100);
     }
 
     // ─── CARDS DE USUARIOS ───────────────────────────────────
@@ -332,6 +337,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <span>📞 ${u.telefono || '—'}</span>
                 <span>📅 ${fechaReg}</span>
             </div>
+            ${u.correo === sesion.correo ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);"><button class="btn-secondary btn-mi-perfil" style="padding:5px 12px;font-size:0.75rem;color:var(--primary-color);border-color:rgba(79,172,254,0.4);">👤 Mi Perfil</button></div>` : ''}
             ${accionesParaRol(u)}`;
         return card;
     }
@@ -383,12 +389,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ─── ACCIONES CARDS USUARIOS ─────────────────────────────
     const tablaUsuariosAdmin = document.getElementById('usuarios-cards-container');
+
+    // Botón Mi Perfil — disponible para todos los roles
+    document.getElementById('usuarios-cards-container')?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-mi-perfil')) abrirModalPerfil();
+    });
+
     if (tablaUsuariosAdmin && esAdmin) {
         tablaUsuariosAdmin.addEventListener('click', (e) => {
             const card = e.target.closest('[data-correo]');
             if (!card) return;
             const correoUsuario = card.dataset.correo;
             if (e.target.classList.contains('btn-edit')) { openEditModalByCorreo(correoUsuario); }
+            if (e.target.classList.contains('btn-mi-perfil')) { abrirModalPerfil(); }
 
             if (e.target.classList.contains('btn-del')) {
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
@@ -1592,6 +1605,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // ─── PERFIL DE USUARIO ────────────────────────────────────
+    function abrirModalPerfil() {
+        cargarPerfil();
+        document.getElementById('perfil-modal')?.classList.remove('hidden');
+    }
+
     function cargarPerfil() {
         const inp = document.getElementById('perfil-nombre');
         const tel = document.getElementById('perfil-telefono');
@@ -1663,16 +1681,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             avatarEl.textContent = iniciales;
         }
         document.getElementById('perfil-password').value = '';
+        document.getElementById('perfil-modal')?.classList.add('hidden');
         showNotification('Perfil actualizado correctamente.');
     });
-
-    // Cargar perfil al entrar a ajustes
-    navLinks.forEach(link => {
-        if (link.getAttribute('data-target') === 'ajustes-view') {
-            link.addEventListener('click', () => setTimeout(cargarPerfil, 50));
-        }
-    });
-    cargarPerfil();
 
     // ─── RECURSOS ────────────────────────────────────────────
 

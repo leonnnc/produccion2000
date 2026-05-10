@@ -331,34 +331,6 @@
                         </div>
                         <button class="btn-secondary" id="toggle-theme" style="padding:8px 16px;">☀️ Modo Claro</button>
                     </div>
-                    <!-- Perfil de usuario — todos los roles -->
-                    <div id="ajustes-perfil-panel" style="margin-top:24px;border-top:1px solid var(--panel-border);padding-top:20px;">
-                        <div class="panel-heading" style="margin-bottom:16px;">
-                            <h3>Mi Perfil</h3>
-                        </div>
-                        <form id="perfil-form" class="custom-form">
-                            <div class="form-row">
-                                <div class="input-group">
-                                    <label>Nombre Completo</label>
-                                    <input type="text" id="perfil-nombre" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Teléfono</label>
-                                    <input type="tel" id="perfil-telefono" placeholder="+51 999 999 999">
-                                </div>
-                            </div>
-                            <div class="input-group">
-                                <label>Nueva Contraseña (dejar en blanco para no cambiar)</label>
-                                <input type="password" id="perfil-password" placeholder="••••••••">
-                            </div>
-                            <button type="submit" class="btn-primary" style="margin-top:10px;max-width:200px;">Guardar Perfil</button>
-                        </form>
-                        <!-- Historial de asistencia -->
-                        <div id="perfil-historial" style="margin-top:20px;border-top:1px solid var(--panel-border);padding-top:16px;">
-                            <h3 style="font-size:0.9rem;margin-bottom:12px;">Historial de Asistencia</h3>
-                            <div id="perfil-historial-content"></div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -496,7 +468,36 @@
         </main>
     </div>
 
-    <!-- MODAL: PREVISUALIZAR DOCUMENTO -->
+    <!-- MODAL: PERFIL DE USUARIO -->
+            <div id="perfil-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:520px;">
+                    <span class="close-modal" data-modal="perfil-modal">&times;</span>
+                    <h2>👤 Mi Perfil</h2>
+                    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:20px;">Actualiza tus datos personales.</p>
+                    <form id="perfil-form" class="custom-form">
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Nombre Completo</label>
+                                <input type="text" id="perfil-nombre" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Teléfono</label>
+                                <input type="tel" id="perfil-telefono" placeholder="+51 999 999 999">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                            <input type="password" id="perfil-password" placeholder="••••••••">
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:10px;max-width:200px;">Guardar Perfil</button>
+                    </form>
+                    <!-- Historial de asistencia -->
+                    <div id="perfil-historial" style="margin-top:20px;border-top:1px solid var(--panel-border);padding-top:16px;">
+                        <h3 style="font-size:0.9rem;margin-bottom:12px;">📋 Historial de Asistencia</h3>
+                        <div id="perfil-historial-content"></div>
+                    </div>
+                </div>
+            </div>
     <div id="doc-preview-modal" class="modal hidden">
         <div class="modal-content glass-panel" style="max-width:700px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
             <span class="close-modal" data-modal="doc-preview-modal">&times;</span>
