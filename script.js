@@ -68,8 +68,11 @@ document.head.appendChild(style);
 document.addEventListener('DOMContentLoaded', async () => {
     const loginPanel      = document.getElementById('login-panel');
     const registerPanel   = document.getElementById('register-panel');
+    const forgotPanel     = document.getElementById('forgot-panel');
     const showRegisterBtn = document.getElementById('show-register');
     const showLoginBtn    = document.getElementById('show-login');
+    const showForgotBtn   = document.getElementById('show-forgot');
+    const showLoginFromForgotBtn = document.getElementById('show-login-from-forgot');
 
     if (!loginPanel) return;
 
@@ -77,7 +80,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.replace('dashboard.html');
         return;
     }
-
     // Migrar datos locales a Firebase si existen
     await DB.migrarDesdeLocalStorage();
     // Crear admin por defecto si no existe
@@ -99,6 +101,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (showRegisterBtn) showRegisterBtn.addEventListener('click', (e) => { e.preventDefault(); switchPanel(loginPanel, registerPanel); });
     if (showLoginBtn)    showLoginBtn.addEventListener('click',    (e) => { e.preventDefault(); switchPanel(registerPanel, loginPanel); });
+    if (showForgotBtn)   showForgotBtn.addEventListener('click',   (e) => { e.preventDefault(); switchPanel(loginPanel, forgotPanel); });
+    if (showLoginFromForgotBtn) showLoginFromForgotBtn.addEventListener('click', (e) => { e.preventDefault(); switchPanel(forgotPanel, loginPanel); });
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     // Mínimo 8 caracteres, al menos una letra y un número
@@ -229,6 +233,52 @@ document.addEventListener('DOMContentLoaded', async () => {
                 e.target.reset();
                 switchPanel(registerPanel, loginPanel);
             }, 1200);
+        });
+    }
+
+    // ─── RECUPERACIÓN DE CONTRASEÑA ──────────────────────────
+    const forgotForm = document.getElementById('forgot-form');
+    if (forgotForm) {
+        forgotForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const correo = document.getElementById('forgot-email').value.trim();
+            const btn    = e.target.querySelector('button[type="submit"]');
+
+            if (!emailRegex.test(correo)) {
+                showNotification('Ingresa un correo válido.', 'error');
+                return;
+            }
+
+            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Buscando...';
+            btn.style.pointerEvents = 'none';
+
+            const usuarios = await DB.getUsuarios();
+            const usuario  = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
+
+            if (!usuario) {
+                btn.textContent = 'Generar Clave Temporal';
+                btn.style.pointerEvents = 'all';
+                showNotification('No encontramos una cuenta con ese correo.', 'error');
+                return;
+            }
+
+            // Generar clave temporal de 8 caracteres (letras + números)
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            let claveTemporal = '';
+            for (let i = 0; i < 8; i++) claveTemporal += chars[Math.floor(Math.random() * chars.length)];
+
+            const claveHash = await hashPassword(claveTemporal);
+            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === correo.toLowerCase());
+            usuarios[idx].clave = claveHash;
+            usuarios[idx].clave_temporal = true;
+            await DB.setUsuarios(usuarios);
+
+            // Mostrar clave temporal en pantalla
+            document.getElementById('forgot-result').style.display = 'block';
+            document.getElementById('forgot-clave-display').textContent = claveTemporal;
+            btn.textContent = 'Generar Clave Temporal';
+            btn.style.pointerEvents = 'all';
+            showNotification('Clave temporal generada. Úsala para ingresar.');
         });
     }
 });

@@ -260,7 +260,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     function accionesParaRol(u) {
         if (!esAdmin) return '';
         const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
-        const resetBtn = `<button class="btn-secondary btn-reset-pwd" style="padding:5px 10px;font-size:0.75rem;">🔑 Reset</button>`;
         const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
 
         // Botón líder de área
@@ -285,7 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         return `
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);">
-                ${editBtn}${resetBtn}${liderBtn}
+                ${editBtn}${liderBtn}
                 <div style="flex:1;"></div>
                 ${delBtn}
             </div>
@@ -306,6 +305,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const liderIndicador = esLiderDeArea
             ? ` <span style="font-size:0.7rem;background:rgba(255,209,102,0.15);border:1px solid rgba(255,209,102,0.4);color:#ffd166;border-radius:20px;padding:1px 8px;">👑 Líder</span>`
             : '';
+        const claveTemporalIndicador = u.clave_temporal
+            ? ` <span style="font-size:0.7rem;background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4);color:#ff4757;border-radius:20px;padding:1px 8px;">🔑 Clave temporal</span>`
+            : '';
 
         const card = document.createElement('div');
         card.dataset.correo = u.correo;
@@ -315,7 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div style="display:flex;align-items:center;gap:12px;">
                 <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;">${iniciales}</div>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}${liderIndicador}</div>
+                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}${liderIndicador}${claveTemporalIndicador}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.correo}</div>
                 </div>
                 <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
@@ -382,20 +384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!card) return;
             const correoUsuario = card.dataset.correo;
             if (e.target.classList.contains('btn-edit')) { openEditModalByCorreo(correoUsuario); }
-            if (e.target.classList.contains('btn-reset-pwd')) {
-                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
-                confirmar('Resetear contraseña', `¿Resetear la contraseña de "${nombre}"? Se establecerá como "Reset2024!".`, () => {
-                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
-                    if (idx !== -1) {
-                        hashPassword('Reset2024!').then(hash => {
-                            usuarios[idx].clave = hash;
-                            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
-                        });
-                    }
-                    showNotification(`Contraseña de "${nombre}" reseteada a "Reset2024!".`);
-                });
-            }
+
             if (e.target.classList.contains('btn-del')) {
                 const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
                 confirmar('Eliminar usuario', `¿Eliminar a "${nombre}"?`, () => {
@@ -1618,6 +1607,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (nuevaClave) {
                 const hash = await hashPassword(nuevaClave);
                 usuarios[idx].clave = hash;
+                delete usuarios[idx].clave_temporal; // limpiar flag de clave temporal
             }
             localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
         }
