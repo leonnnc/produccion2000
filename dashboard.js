@@ -1161,15 +1161,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         const userName  = sesion.nombre;
         const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
-        const visibles  = servicios.filter(s => esAdmin || s.usuario === userName);
+        const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const visibles  = servicios.filter(s => esAdmin || esLider || s.usuario === userName);
         panel.innerHTML = '';
         if (visibles.length === 0) {
-            panel.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados a\u00fan.</span></li>';
+            panel.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados aún.</span></li>';
             return;
         }
         const domingos  = visibles.filter(s => s.servicio.startsWith('Domingo'));
-        const miercoles = visibles.filter(s => s.servicio.startsWith('Mi\u00e9rcoles'));
+        const miercoles = visibles.filter(s => s.servicio.startsWith('Miércoles'));
         const sortServicios = arr => [...arr].sort((a, b) => servicioSortKey(a.servicio) - servicioSortKey(b.servicio));
+
+        const puedeEliminar = (s) => {
+            if (esAdmin) return true;
+            if (esLider) {
+                // Líder solo puede eliminar reservas de su área
+                const u = usuarios.find(x => x.nombre === s.usuario);
+                const areaUsuario = (u?.area || s.area || '').toLowerCase();
+                return areaUsuario === (sesion.area || '').toLowerCase();
+            }
+            return false;
+        };
 
         const renderGroup = (items, label, colorClass) => {
             if (items.length === 0) return;
@@ -1187,14 +1199,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const numServicio = servicioNumMap[horaStr] || horaStr;
                 const li = document.createElement('li');
                 li.className = `semana-item semana-item-${colorClass}`;
-                li.innerHTML = `<span class="semana-nombre">\ud83d\udc64 ${s.usuario}</span><span class="semana-area">${area}</span><span class="semana-servicio">\ud83d\udcc5 ${diaStr} \u00b7 ${numServicio}</span>`;
+                li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+
+                const btnEliminar = puedeEliminar(s)
+                    ? `<button class="btn-eliminar-reserva-dash" data-servicio="${s.servicio}" data-usuario="${s.usuario}" style="flex-shrink:0;padding:2px 8px;font-size:0.7rem;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);color:#ff4757;border-radius:6px;cursor:pointer;">✕</button>`
+                    : '';
+
+                li.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap;">
+                        <span class="semana-nombre">👤 ${s.usuario}</span>
+                        <span class="semana-area">${area}</span>
+                        <span class="semana-servicio">📅 ${diaStr} · ${numServicio}</span>
+                    </div>
+                    ${btnEliminar}`;
                 panel.appendChild(li);
             });
         };
-        renderGroup(domingos,  '\u2600\ufe0f Domingos',  'domingo');
-        renderGroup(miercoles, '\ud83c\udf19 Mi\u00e9rcoles', 'miercoles');
+        renderGroup(domingos,  '☀️ Domingos',   'domingo');
+        renderGroup(miercoles, '🌙 Miércoles', 'miercoles');
     }
     renderReservasSemana();
+
+    // Handler para eliminar reservas desde el dashboard
+    document.getElementById('servicios-semana-list')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-eliminar-reserva-dash');
+        if (!btn) return;
+        const servicio = btn.dataset.servicio;
+        const usuario  = btn.dataset.usuario;
+        confirmar('Quitar reserva', `¿Quitar la reserva de "${usuario}" para "${servicio}"?`, () => {
+            let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            servicios = servicios.filter(s => !(s.servicio === servicio && s.usuario === usuario));
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            showNotification(`Reserva de "${usuario}" eliminada.`);
+            renderReservasSemana();
+            actualizarEstadisticas();
+        });
+    });
 
     // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
 
