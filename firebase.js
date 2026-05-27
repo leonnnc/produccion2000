@@ -2,8 +2,12 @@
 // FIREBASE — Capa de datos compartida
 // ==========================================
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
-import { getDatabase, ref, set, get, update, remove, onValue, push, child }
+import { getDatabase, ref, set, get, update, remove, onValue, push, child, onDisconnect }
     from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, updatePassword }
+    from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL }
+    from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js';
 
 const firebaseConfig = {
     apiKey: "AIzaSyCnTRafmw1uayFrFe57700_VGPB5mRotnE",
@@ -17,6 +21,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
+const auth = getAuth(app);
+const storage = getStorage(app);
 
 // ─── CLAVES DE COLECCIONES ────────────────────────────────
 const KEYS = {
@@ -29,6 +35,8 @@ const KEYS = {
     recursos_pdfs:   'recursos_pdfs',
     recursos_videos: 'recursos_videos',
     lideres:     'lideres_area',
+    presencia:   'presencia_usuarios',
+    chats:       'chats_mensajes'
 };
 
 // ─── HELPERS ─────────────────────────────────────────────
@@ -70,7 +78,52 @@ function listenCollection(key, callback) {
 
 // ─── API PÚBLICA ──────────────────────────────────────────
 
+export const AUTH = {
+    getAuth: () => auth,
+    registrar: (email, pwd) => createUserWithEmailAndPassword(auth, email, pwd),
+    login: (email, pwd) => signInWithEmailAndPassword(auth, email, pwd),
+    recuperar: (email) => sendPasswordResetEmail(auth, email),
+    logout: () => signOut(auth),
+    onEstadoCambiado: (cb) => onAuthStateChanged(auth, cb),
+    cambiarClave: (user, nuevaClave) => updatePassword(user, nuevaClave)
+};
+
+export const STORAGE = {
+    subirFotoPerfil: async (uid, file) => {
+        const fileRef = sRef(storage, `fotos_perfil/${uid}`);
+        await uploadBytes(fileRef, file);
+        return getDownloadURL(fileRef);
+    }
+};
+
 export const DB = {
+    // Presencia y Chat
+    listenConexionState: (key, cb) => {
+        onValue(ref(db, '.info/connected'), (snap) => {
+            if (snap.val() === true) {
+                const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
+                const presenceStateOffline = { online: false, ultima_conexion: Date.now() };
+                const presenceStateOnline  = { online: true, ultima_conexion: Date.now() };
+                
+                onDisconnect(userPresenceRef).set(presenceStateOffline).then(() => {
+                    set(userPresenceRef, presenceStateOnline);
+                    if (cb) cb(true);
+                });
+            }
+        });
+    },
+    setOffline: async (key) => {
+        const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
+        await set(userPresenceRef, { online: false, ultima_conexion: Date.now() });
+    },
+    listenPresencia: (cb) => listenCollection(KEYS.presencia, cb),
+    enviarMensaje: async (msgObj) => {
+        const chatRef = ref(db, KEYS.chats);
+        const newMsgRef = push(chatRef);
+        await set(newMsgRef, msgObj);
+    },
+    listenMensajes: (cb) => listenCollection(KEYS.chats, cb),
+
     // Usuarios
     getUsuarios:    () => getCollection(KEYS.usuarios),
     setUsuarios:    (arr) => setCollection(KEYS.usuarios, arr),

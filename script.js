@@ -1,68 +1,12 @@
 // ==========================================
 // SCRIPT.JS — Login / Registro con Firebase
 // ==========================================
-import { DB } from './firebase.js';
-import { hashPassword, showNotification } from './utils.js';
+import { DB, AUTH } from './firebase.js';
+import { showNotification } from './utils.js';
 
 // Registrar Service Worker para PWA
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
-
-// ─── ADMIN POR DEFECTO ───────────────────────────────────
-async function crearAdminPorDefecto() {
-    const usuarios = await DB.getUsuarios();
-    const adminIdx = usuarios.findIndex(u => u.rol === 'Admin');
-    const claveCorrecta = await hashPassword('Admin2024!');
-
-    if (adminIdx === -1) {
-        // No existe ningún admin — crear uno nuevo con SHA-256
-        usuarios.unshift({
-            nombre: 'Administrador',
-            correo: 'admin@produccion.com',
-            clave: claveCorrecta,
-            area: 'Administración',
-            telefono: '',
-            rol: 'Admin',
-            fecha: new Date().toISOString()
-        });
-        await DB.setUsuarios(usuarios);
-    } else {
-        // Ya existe un admin — asegurarse de que su clave sea el hash correcto
-        // de 'Admin2024!' (no btoa, no hash de btoa, sino hash del texto plano)
-        const admin = usuarios[adminIdx];
-        if (admin.clave !== claveCorrecta) {
-            admin.clave = claveCorrecta;
-            await DB.setUsuarios(usuarios);
-        }
-    }
-}
-
-// ─── MIGRACIÓN: btoa → SHA-256 ───────────────────────────
-// Convierte contraseñas antiguas en base64 a SHA-256 la primera vez que el
-// usuario inicia sesión correctamente con la clave en texto plano.
-async function migrarClavesSiNecesario(usuarios) {
-    const migrado = localStorage.getItem('claves_migradas_sha256');
-    if (migrado) return usuarios;
-
-    let cambios = false;
-    for (const u of usuarios) {
-        // Las claves SHA-256 tienen 64 chars hex; las btoa son más cortas y
-        // contienen caracteres base64 (A-Z, a-z, 0-9, +, /, =).
-        if (u.clave && u.clave.length < 64) {
-            try {
-                // Decodificar la clave base64 y re-hashear con SHA-256
-                const claveTexto = atob(u.clave);
-                u.clave = await hashPassword(claveTexto);
-                cambios = true;
-            } catch (_) { /* ignorar si no es base64 válido */ }
-        }
-    }
-    if (cambios) {
-        await DB.setUsuarios(usuarios);
-        localStorage.setItem('claves_migradas_sha256', '1');
-    }
-    return usuarios;
 }
 
 // Estilos de animación
@@ -87,8 +31,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // Migrar datos locales a Firebase si existen
     await DB.migrarDesdeLocalStorage();
-    // Crear admin por defecto si no existe
-    await crearAdminPorDefecto();
 
     const switchPanel = (hidePanel, showPanel) => {
         hidePanel.style.opacity = '0';
@@ -144,41 +86,43 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Verificando...';
             btn.style.pointerEvents = 'none';
 
-            let usuarios = await DB.getUsuarios();
-            // Migrar claves antiguas (btoa → SHA-256) de forma transparente
-            usuarios = await migrarClavesSiNecesario(usuarios);
+            try {
+                const userCredential = await AUTH.login(correo, clave);
+                const usuarios = await DB.getUsuarios();
+                const usuario = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
 
-            const usuario = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
+                if (!usuario) {
+                    btn.textContent = 'Iniciar Sesión';
+                    btn.style.pointerEvents = 'all';
+                    showNotification('Usuario autenticado pero sin perfil en la base de datos.', 'error');
+                    AUTH.logout();
+                    return;
+                }
 
-            if (!usuario) {
+                btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Ingresando...';
+                sessionStorage.setItem('sesion_activa', JSON.stringify({
+                    nombre: usuario.nombre,
+                    correo: usuario.correo,
+                    rol:    usuario.rol,
+                    area:   usuario.area || '',
+                    uid:    userCredential.user.uid
+                }));
+                showNotification(`¡Bienvenido, ${usuario.nombre.split(' ')[0]}!`);
+                setTimeout(() => { window.location.replace('dashboard.html'); }, 900);
+            } catch (error) {
                 btn.textContent = 'Iniciar Sesión';
                 btn.style.pointerEvents = 'all';
-                const regCorreo = document.getElementById('reg-correo');
-                if (regCorreo) regCorreo.value = correo;
-                switchPanel(loginPanel, registerPanel);
-                showNotification('No encontramos esa cuenta. Completa tu registro.', 'error');
-                return;
+                console.error("Login error:", error);
+                
+                // Tratar el caso donde el usuario existe en DB pero no en Auth (ej: antiguos)
+                const usuarios = await DB.getUsuarios();
+                const existeAntiguo = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
+                if (existeAntiguo && error.code === 'auth/invalid-credential') {
+                    showNotification('Debido a una actualización de seguridad, necesitas restablecer tu contraseña. Ve a "¿Olvidaste tu contraseña?".', 'error');
+                } else {
+                    showNotification('Credenciales incorrectas o usuario no existe.', 'error');
+                }
             }
-
-            const claveHash = await hashPassword(clave);
-            if (usuario.clave !== claveHash) {
-                btn.textContent = 'Iniciar Sesión';
-                btn.style.pointerEvents = 'all';
-                showNotification('Contraseña incorrecta. Intenta de nuevo.', 'error');
-                return;
-            }
-
-            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Ingresando...';
-            // Guardamos solo datos no sensibles en sesión — el rol se verifica
-            // contra Firebase al cargar el dashboard.
-            sessionStorage.setItem('sesion_activa', JSON.stringify({
-                nombre: usuario.nombre,
-                correo: usuario.correo,
-                rol:    usuario.rol,
-                area:   usuario.area || ''
-            }));
-            showNotification(`¡Bienvenido, ${usuario.nombre.split(' ')[0]}!`);
-            setTimeout(() => { window.location.replace('dashboard.html'); }, 900);
         });
     }
 
@@ -207,37 +151,44 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!valido) return;
 
             const btn = e.target.querySelector('button[type="submit"]');
-            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Verificando...';
+            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Registrando...';
             btn.style.pointerEvents = 'none';
 
-            const usuarios = await DB.getUsuarios();
-            if (usuarios.some(u => u.correo.toLowerCase() === correo.toLowerCase())) {
-                btn.textContent = 'Completar Registro';
-                btn.style.pointerEvents = 'all';
-                showNotification('Ya existe una cuenta con ese correo.', 'error');
-                return;
-            }
+            try {
+                // Crear usuario en Firebase Auth (Lanza error si el correo ya existe)
+                const userCredential = await AUTH.registrar(correo, pwd);
 
-            const claveHash = await hashPassword(pwd);
-            usuarios.push({
-                nombre: `${nombre} ${apellido}`.trim(),
-                correo,
-                clave: claveHash,
-                area,
-                telefono,
-                rol: 'Siervo',
-                fecha: new Date().toISOString()
-            });
-            await DB.setUsuarios(usuarios);
+                // Como ya estamos autenticados, podemos leer/escribir en la base de datos
+                const usuarios = await DB.getUsuarios();
+                usuarios.push({
+                    uid: userCredential.user.uid,
+                    nombre: `${nombre} ${apellido}`.trim(),
+                    correo,
+                    area,
+                    telefono,
+                    rol: 'Siervo',
+                    fecha: new Date().toISOString()
+                });
+                await DB.setUsuarios(usuarios);
 
-            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Registrando...';
-            setTimeout(() => {
                 showNotification('¡Registro exitoso! Ya puedes iniciar sesión.');
                 btn.textContent = 'Completar Registro';
                 btn.style.pointerEvents = 'all';
                 e.target.reset();
                 switchPanel(registerPanel, loginPanel);
-            }, 1200);
+                
+                // Por seguridad cerramos la sesión generada por el registro automático
+                AUTH.logout();
+            } catch (error) {
+                btn.textContent = 'Completar Registro';
+                btn.style.pointerEvents = 'all';
+                console.error("Registro error:", error);
+                if (error.code === 'auth/email-already-in-use') {
+                    showNotification('Ya existe una cuenta con ese correo.', 'error');
+                } else {
+                    showNotification('Error al registrar: ' + (error.message || 'Intenta de nuevo'), 'error');
+                }
+            }
         });
     }
 
@@ -254,36 +205,37 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Buscando...';
+            btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">↻</span> Enviando...';
             btn.style.pointerEvents = 'none';
 
-            const usuarios = await DB.getUsuarios();
-            const usuario  = usuarios.find(u => u.correo.toLowerCase() === correo.toLowerCase());
-
-            if (!usuario) {
-                btn.textContent = 'Generar Clave Temporal';
+            try {
+                await AUTH.recuperar(correo);
+                
+                // Mostrar confirmación
+                const resultDiv = document.getElementById('forgot-result');
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `
+                    <p style="font-size:0.95rem;color:var(--accent-green);text-align:center;margin-bottom:8px;">
+                        ✓ Enlace de recuperación enviado.
+                    </p>
+                    <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">
+                        Por favor, revisa tu bandeja de entrada o la carpeta de SPAM para restablecer tu contraseña.
+                    </p>
+                `;
+                
+                btn.textContent = 'Generar Enlace Temporal';
                 btn.style.pointerEvents = 'all';
-                showNotification('No encontramos una cuenta con ese correo.', 'error');
-                return;
+                showNotification('Enlace de recuperación enviado.');
+            } catch (error) {
+                btn.textContent = 'Generar Enlace Temporal';
+                btn.style.pointerEvents = 'all';
+                console.error("Recovery error:", error);
+                if (error.code === 'auth/user-not-found') {
+                    showNotification('No encontramos una cuenta con ese correo.', 'error');
+                } else {
+                    showNotification('No se pudo enviar el correo de recuperación.', 'error');
+                }
             }
-
-            // Generar clave temporal de 8 caracteres (letras + números)
-            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-            let claveTemporal = '';
-            for (let i = 0; i < 8; i++) claveTemporal += chars[Math.floor(Math.random() * chars.length)];
-
-            const claveHash = await hashPassword(claveTemporal);
-            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === correo.toLowerCase());
-            usuarios[idx].clave = claveHash;
-            usuarios[idx].clave_temporal = true;
-            await DB.setUsuarios(usuarios);
-
-            // Mostrar clave temporal en pantalla
-            document.getElementById('forgot-result').style.display = 'block';
-            document.getElementById('forgot-clave-display').textContent = claveTemporal;
-            btn.textContent = 'Generar Clave Temporal';
-            btn.style.pointerEvents = 'all';
-            showNotification('Clave temporal generada. Úsala para ingresar.');
         });
     }
 });

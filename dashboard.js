@@ -1,7 +1,7 @@
 // ==========================================
 // DASHBOARD ERP — dashboard.js
 // ==========================================
-import { DB } from './firebase.js';
+import { DB, AUTH, STORAGE } from './firebase.js';
 import { hashPassword, showNotification } from './utils.js';
 
 // Registrar Service Worker para PWA
@@ -18,10 +18,12 @@ const SYNC_KEYS = [
 ];
 
 // Parchear localStorage.setItem para sincronizar a Firebase automáticamente
+let isSyncingFromFirebase = false;
 const _lsSetItem = localStorage.setItem.bind(localStorage);
+
 localStorage.setItem = function(key, value) {
     _lsSetItem(key, value);
-    if (!SYNC_KEYS.includes(key)) return;
+    if (isSyncingFromFirebase || !SYNC_KEYS.includes(key)) return;
     try {
         const data = JSON.parse(value);
         const writeMap = {
@@ -39,29 +41,39 @@ localStorage.setItem = function(key, value) {
     } catch(e) {}
 };
 
+function updateLocalCache(key, data) {
+    if (data === null || data === undefined) return;
+    isSyncingFromFirebase = true;
+    _lsSetItem(key, JSON.stringify(data));
+    isSyncingFromFirebase = false;
+}
+
+// Bandera para saber si ya cargamos la app para poder re-renderizar
+let appReady = false;
+
 async function sincronizarDesdeFirebase() {
-    await Promise.all(SYNC_KEYS.map(async key => {
-        try {
-            let data;
-            const methodMap = {
-                'usuarios_registrados':  () => DB.getUsuarios(),
-                'proyectos_creados':     () => DB.getProyectos(),
-                'servicios_reservados':  () => DB.getServicios(),
-                'asistencias_proyectos': () => DB.getAsistencias(),
-                'aceptaciones_tareas':   () => DB.getAceptaciones(),
-                'comentarios':           () => DB.getComentarios(),
-                'recursos_pdfs':         () => DB.getPdfs(),
-                'recursos_videos':       () => DB.getVideos(),
-                'lideres_area':          () => DB.getLideres(),
-            };
-            if (methodMap[key]) {
-                data = await methodMap[key]();
-                if (data !== null && data !== undefined) {
-                    _lsSetItem(key, JSON.stringify(data));
-                }
-            }
-        } catch(e) { /* ignorar errores de sincronización */ }
-    }));
+    // Sincronización inicial rápida para no bloquear
+    const [usr, proy, serv, asi, acep, com, pdfs, vids, lid] = await Promise.all([
+        DB.getUsuarios(), DB.getProyectos(), DB.getServicios(),
+        DB.getAsistencias(), DB.getAceptaciones(), DB.getComentarios(),
+        DB.getPdfs(), DB.getVideos(), DB.getLideres()
+    ]);
+    updateLocalCache('usuarios_registrados', usr);
+    updateLocalCache('proyectos_creados', proy);
+    updateLocalCache('servicios_reservados', serv);
+    updateLocalCache('asistencias_proyectos', asi);
+    updateLocalCache('aceptaciones_tareas', acep);
+    updateLocalCache('comentarios', com);
+    updateLocalCache('recursos_pdfs', pdfs);
+    updateLocalCache('recursos_videos', vids);
+    updateLocalCache('lideres_area', lid);
+
+    // Iniciar listeners en tiempo real
+    DB.listenUsuarios(d => { updateLocalCache('usuarios_registrados', d); if(appReady && window._cargarTablaUsuarios) window._cargarTablaUsuarios(); });
+    DB.listenProyectos(d => { updateLocalCache('proyectos_creados', d); if(appReady && window._renderProyectos) window._renderProyectos(); });
+    DB.listenServicios(d => { updateLocalCache('servicios_reservados', d); if(appReady && window._actualizarEstadisticas) window._actualizarEstadisticas(); });
+    DB.listenPdfs(d => { updateLocalCache('recursos_pdfs', d); if(appReady && window._renderRecursosPDFs) window._renderRecursosPDFs(); });
+    DB.listenVideos(d => { updateLocalCache('recursos_videos', d); if(appReady && window._renderRecursosVideos) window._renderRecursosVideos(); });
 }
 
 // Variable global para el offset de la agenda
@@ -108,12 +120,30 @@ function confirmar(titulo, mensaje, onOk) {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-    // Sincronizar datos desde Firebase antes de renderizar
-    await sincronizarDesdeFirebase();
+    // Esperar a que Firebase Auth verifique la sesión antes de hacer peticiones a la DB
+    const authReady = await new Promise((resolve) => {
+        const unsubscribe = AUTH.onEstadoCambiado(user => {
+            unsubscribe();
+            resolve(!!user);
+        });
+    });
+
+    if (!authReady) {
+        sessionStorage.removeItem('sesion_activa');
+        window.location.replace('index.html');
+        return;
+    }
 
     const sesionRaw = sessionStorage.getItem('sesion_activa');
     let sesion      = sesionRaw ? JSON.parse(sesionRaw) : null;
-    if (!sesion) { window.location.replace('index.html'); return; }
+    if (!sesion) { AUTH.logout(); window.location.replace('index.html'); return; }
+
+    // Sincronizar datos desde Firebase antes de renderizar (ahora es seguro)
+    try {
+        await sincronizarDesdeFirebase();
+    } catch(err) {
+        console.error("Error sincronizando DB:", err);
+    }
 
     // ─── VERIFICACIÓN DE ROL CONTRA FIREBASE ─────────────────
     // Evita que un usuario manipule su rol en sessionStorage.
@@ -145,20 +175,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const avatarEl = document.querySelector('.user-info .avatar');
     if (avatarEl) {
-        const iniciales = sesion.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
-        avatarEl.textContent = iniciales;
-        avatarEl.style.fontSize = '1rem';
-        avatarEl.style.fontWeight = '800';
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        if (u && u.fotoUrl) {
+            avatarEl.innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            avatarEl.style.fontSize = '';
+            avatarEl.style.fontWeight = '';
+        } else {
+            const iniciales = sesion.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+            avatarEl.textContent = iniciales;
+            avatarEl.style.fontSize = '1rem';
+            avatarEl.style.fontWeight = '800';
+        }
     }
 
     const esAdmin = sesion.rol === 'Admin' || sesion.rol === 'SuperLider';
     const esLider = sesion.rol === 'Lider';
 
     const permitido = {
-        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
-        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','ajustes-view'],
-        'Lider':      ['dashboard-view','usuarios-view','agenda-view','recursos-view'],
-        'Siervo':     ['dashboard-view','agenda-view','recursos-view']
+        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
+        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
+        'Lider':      ['dashboard-view','usuarios-view','agenda-view','recursos-view','chat-view'],
+        'Siervo':     ['dashboard-view','agenda-view','recursos-view','chat-view']
     };
     const acceso = permitido[sesion.rol] || permitido['Siervo'];
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
@@ -225,6 +263,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (lb) { lb.textContent = n === 0 ? empty : filled(n); lb.className = `trend ${n > 0 ? 'positive' : 'neutral'}`; }
         });
     }
+    // Exportar globales para que los listeners en tiempo real puedan llamarlas
+    window._actualizarEstadisticas = actualizarEstadisticas;
     actualizarEstadisticas();
 
     // ─── TARJETA DE BIENVENIDA CON ROL Y ACCESOS ─────────────
@@ -319,13 +359,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? ` <span style="font-size:0.7rem;background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4);color:#ff4757;border-radius:20px;padding:1px 8px;">🔑 Clave temporal</span>`
             : '';
 
+        const avatarContent = u.fotoUrl
+            ? `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
+            : iniciales;
+
         const card = document.createElement('div');
         card.dataset.correo = u.correo;
         card.className = 'usuario-card';
         card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;transition:border-color 0.2s;';
         card.innerHTML = `
             <div style="display:flex;align-items:center;gap:12px;">
-                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;">${iniciales}</div>
+                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;overflow:hidden;">${avatarContent}</div>
                 <div style="flex:1;min-width:0;">
                     <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}${liderIndicador}${claveTemporalIndicador}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.correo}</div>
@@ -375,6 +419,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             usuarios.forEach(u => usuariosContainer.appendChild(crearCardUsuario(u)));
         }
     }
+    
+    // Exportar a window para los listeners
+    window._cargarTablaUsuarios = () => cargarTablaUsuarios(
+        document.getElementById('filtro-rol')?.value || '',
+        document.getElementById('filtro-area')?.value || ''
+    );
     cargarTablaUsuarios();
 
     // Si es Líder: ocultar filtros y mostrar título con su área
@@ -735,6 +785,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }, 60000);
     }
+    
+    window._renderProyectos = renderProyectos;
     renderProyectos();
 
     document.getElementById('proyectos-lista')?.addEventListener('click', (e) => {
@@ -1613,10 +1665,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     function cargarPerfil() {
         const inp = document.getElementById('perfil-nombre');
         const tel = document.getElementById('perfil-telefono');
+        const cor = document.getElementById('perfil-correo');
+        const dis = document.getElementById('perfil-distrito');
+        const areaSel = document.getElementById('perfil-area');
+
         if (inp) inp.value = sesion.nombre;
+        if (cor) cor.value = sesion.correo;
+
         const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-        const u = usuarios.find(x => x.correo === sesion.correo);
-        if (tel && u) tel.value = u.telefono || '';
+        const u = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        if (u) {
+            if (tel) tel.value = u.telefono || '';
+            if (dis) dis.value = u.distrito || '';
+            if (areaSel) areaSel.value = u.area || '';
+
+            // Cargar imagen de perfil
+            const imgEl = document.getElementById('perfil-foto-img');
+            const initialsEl = document.getElementById('perfil-foto-iniciales');
+            if (u.fotoUrl) {
+                if (imgEl) { imgEl.src = u.fotoUrl; imgEl.style.display = 'block'; }
+                if (initialsEl) initialsEl.style.display = 'none';
+            } else {
+                if (imgEl) imgEl.style.display = 'none';
+                if (initialsEl) {
+                    const initials = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                    initialsEl.textContent = initials;
+                    initialsEl.style.display = 'block';
+                }
+            }
+        }
         renderHistorialAsistencia();
     }
 
@@ -1657,32 +1734,188 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>`;
     }
 
+    document.getElementById('btn-perfil-cambiar-foto')?.addEventListener('click', () => {
+        document.getElementById('perfil-foto-input')?.click();
+    });
+
+    function compressImageToBase64(file, maxWidth = 120, maxHeight = 120) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height = Math.round(height * maxWidth / width);
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width = Math.round(width * maxHeight / height);
+                            height = maxHeight;
+                        }
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.onerror = reject;
+                img.src = e.target.result;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    document.getElementById('perfil-foto-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        showNotification('Actualizando foto de perfil...', 'success');
+
+        try {
+            // Generar Base64 comprimido directamente (120x120px, 70% calidad)
+            const downloadUrl = await compressImageToBase64(file);
+            
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (idx !== -1) {
+                usuarios[idx].fotoUrl = downloadUrl;
+                
+                // Esperar a que se guarde en Firebase Realtime Database
+                await DB.setUsuarios(usuarios);
+                
+                // Guardar localmente
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                
+                const imgEl = document.getElementById('perfil-foto-img');
+                const initialsEl = document.getElementById('perfil-foto-iniciales');
+                if (imgEl) { imgEl.src = downloadUrl; imgEl.style.display = 'block'; }
+                if (initialsEl) initialsEl.style.display = 'none';
+
+                if (avatarEl) {
+                    avatarEl.innerHTML = `<img src="${downloadUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                    avatarEl.style.fontSize = '';
+                    avatarEl.style.fontWeight = '';
+                }
+
+                const bienvenidaAvatar = document.getElementById('btn-abrir-perfil');
+                if (bienvenidaAvatar) {
+                    bienvenidaAvatar.innerHTML = `<img src="${downloadUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                }
+
+                showNotification('¡Foto de perfil actualizada!');
+                if (window._cargarTablaUsuarios) window._cargarTablaUsuarios();
+            }
+        } catch (err) {
+            console.error("Error al subir foto:", err);
+            showNotification('Error al subir la foto de perfil.', 'error');
+        }
+    });
+
     document.getElementById('perfil-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const nuevoNombre = document.getElementById('perfil-nombre').value.trim();
         const nuevoTel    = document.getElementById('perfil-telefono').value.trim();
+        const nuevoDis    = document.getElementById('perfil-distrito').value.trim();
+        const nuevaArea   = document.getElementById('perfil-area').value;
         const nuevaClave  = document.getElementById('perfil-password').value;
-        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
-        const idx = usuarios.findIndex(u => u.correo === sesion.correo);
-        if (idx !== -1) {
-            usuarios[idx].nombre   = nuevoNombre;
-            usuarios[idx].telefono = nuevoTel;
-            if (nuevaClave) {
-                const hash = await hashPassword(nuevaClave);
-                usuarios[idx].clave = hash;
-                delete usuarios[idx].clave_temporal; // limpiar flag de clave temporal
+        const btnSubmit   = e.target.querySelector('button[type="submit"]');
+
+        if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Guardando...'; }
+
+        try {
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (idx !== -1) {
+                usuarios[idx].nombre   = nuevoNombre;
+                usuarios[idx].telefono = nuevoTel;
+                usuarios[idx].distrito = nuevoDis;
+                usuarios[idx].area     = nuevaArea;
+                if (nuevaClave) {
+                    const hash = await hashPassword(nuevaClave);
+                    usuarios[idx].clave = hash;
+                    delete usuarios[idx].clave_temporal;
+                }
+                await DB.setUsuarios(usuarios);
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
             }
-            localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+
+            if (nuevaClave) {
+                const user = AUTH.getAuth().currentUser;
+                if (user) {
+                    await AUTH.cambiarClave(user, nuevaClave);
+                }
+            }
+
+            sesion.nombre = nuevoNombre;
+            sesion.area   = nuevaArea;
+            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+
+            if (avatarEl) {
+                const usuariosAct = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const curUser = usuariosAct.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+                if (curUser && curUser.fotoUrl) {
+                    avatarEl.innerHTML = `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                } else {
+                    const iniciales = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                    avatarEl.textContent = iniciales;
+                }
+            }
+
+            document.getElementById('perfil-password').value = '';
+            document.getElementById('perfil-modal')?.classList.add('hidden');
+            showNotification('Perfil actualizado correctamente.');
+            
+            // Recargar la visualización de la bienvenida
+            const bienvenidaContent = document.getElementById('bienvenida-content');
+            if (bienvenidaContent) {
+                const hora = new Date().getHours();
+                const momento = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+                const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+                const rolLabel = roleMap[sesion.rol] || 'Siervo';
+                const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+                const rolColor = roleColors[sesion.rol] || '#2ed573';
+                const accesosPorRol = {
+                    'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+                    'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+                    'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
+                    'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
+                };
+                const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
+                const curUser = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+                const imgTag = (curUser && curUser.fotoUrl)
+                    ? `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
+                    : sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
+
+                bienvenidaContent.innerHTML = `
+                    <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
+                        <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
+                            ${imgTag}
+                        </div>
+                        <div>
+                            <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
+                                ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                document.getElementById('btn-abrir-perfil')?.addEventListener('click', () => abrirModalPerfil());
+            }
+            if (window._cargarTablaUsuarios) window._cargarTablaUsuarios();
+        } catch (error) {
+            console.error("Error al actualizar perfil:", error);
+            showNotification('Error al actualizar el perfil o contraseña.', 'error');
+        } finally {
+            if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = 'Guardar Perfil'; }
         }
-        sesion.nombre = nuevoNombre;
-        sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
-        if (avatarEl) {
-            const iniciales = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
-            avatarEl.textContent = iniciales;
-        }
-        document.getElementById('perfil-password').value = '';
-        document.getElementById('perfil-modal')?.classList.add('hidden');
-        showNotification('Perfil actualizado correctamente.');
     });
 
     // ─── RECURSOS ────────────────────────────────────────────
@@ -1917,6 +2150,71 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         }
+
+        // ── Historial de PDFs expirados ──
+        const historialSection = document.getElementById('recursos-pdfs-historial-section');
+        const historialLista   = document.getElementById('recursos-pdfs-historial-lista');
+        const historialCount   = document.getElementById('recursos-pdfs-historial-count');
+        if (historialSection && historialLista) {
+            const pdfsExpirados = pdfs.filter(p => p.servicio && esPdfExpirado(p));
+            if (pdfsExpirados.length === 0) {
+                historialSection.style.display = 'none';
+            } else {
+                historialSection.style.display = '';
+                if (historialCount) historialCount.textContent = `${pdfsExpirados.length} archivo(s)`;
+                historialLista.innerHTML = '';
+
+                // Agrupar por servicio
+                const grupos = {};
+                pdfsExpirados.forEach(p => {
+                    const key = p.servicio || 'general';
+                    if (!grupos[key]) grupos[key] = [];
+                    grupos[key].push(p);
+                });
+
+                const getHistorialLabel = (key) => {
+                    if (key === 'dom-1') return '☀️ Domingo · 1er Servicio';
+                    if (key === 'dom-2') return '☀️ Domingo · 2do Servicio';
+                    if (key === 'dom-3') return '☀️ Domingo · 3er Servicio';
+                    if (key === 'dom-4') return '☀️ Domingo · 4to Servicio';
+                    if (key === 'mie-1') return '🌙 Miércoles · Servicio';
+                    if (key.startsWith('especial_')) {
+                        const proyAll = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                        const proy = proyAll.find(x => x.fecha_registro === key.replace('especial_', ''));
+                        return proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+                    }
+                    return key;
+                };
+
+                Object.entries(grupos).forEach(([key, items]) => {
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.style.opacity = '0.6';
+                    // Obtener la fecha real del servicio expirado
+                    const fechaSubida = items[0].fecha ? new Date(items[0].fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '';
+                    sep.textContent = `${getHistorialLabel(key)}${fechaSubida ? ' — ' + fechaSubida : ''}`;
+                    historialLista.appendChild(sep);
+
+                    items.forEach(p => {
+                        const realIdx = pdfs.indexOf(p);
+                        const row = document.createElement('div');
+                        row.className = 'recurso-card';
+                        row.style.opacity = '0.6';
+                        const subtitulo = p.nombreArchivo || '';
+                        row.innerHTML = `
+                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                                <div class="recurso-thumb-placeholder" style="font-size:1.2rem;">📄</div>
+                                <div class="recurso-info">
+                                    <span class="recurso-titulo">${p.titulo}</span>
+                                    ${subtitulo ? `<span class="recurso-url">${subtitulo}</span>` : ''}
+                                </div>
+                            </div>
+                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">🗑️</button>` : ''}`;
+                        historialLista.appendChild(row);
+                    });
+                });
+            }
+        }
     } // fin renderRecursos
 
     // ── Delegación de eventos recursos (una sola vez) ──
@@ -2132,6 +2430,227 @@ document.addEventListener('DOMContentLoaded', async () => {
         const isLight = document.body.classList.contains('light-mode');
         localStorage.setItem('tema', isLight ? 'light' : 'dark');
         toggleTheme.textContent = isLight ? '\ud83c\udf19 Modo Oscuro' : '\u2600\ufe0f Modo Claro';
+    });
+
+    // ─── LÓGICA DE PRESENCIA Y CHAT EN TIEMPO REAL ─────────────
+
+    // Normalizar correos para usarlos de claves seguras en Firebase
+    function getSafeEmail(email) {
+        if (!email) return '';
+        return email.toLowerCase().replace(/\./g, '_');
+    }
+
+    // Iniciar rastreo de presencia para el usuario actual
+    const safeSelfEmail = getSafeEmail(sesion.correo);
+    DB.listenConexionState(safeSelfEmail);
+
+    // Escuchar estado de conexión de todos los usuarios
+    let presenciaUsuarios = {};
+    DB.listenPresencia((presencia) => {
+        presenciaUsuarios = presencia || {};
+        renderChatUsers();
+        if (activeChatUser) {
+            actualizarEstadoChatActivo();
+        }
+    });
+
+    let activeChatUser = null;
+    let todosLosMensajes = [];
+
+    // Cargar la lista de usuarios en el chat
+    function renderChatUsers() {
+        const usersListCont = document.getElementById('chat-users-list');
+        if (!usersListCont) return;
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const filtrados = usuarios.filter(u => u.correo.toLowerCase() !== sesion.correo.toLowerCase() && u.correo.toLowerCase() !== ADMIN_MAESTRO);
+
+        // Ordenar: Conectados primero (online), luego por orden alfabético de nombre
+        filtrados.sort((a, b) => {
+            const aSafe = getSafeEmail(a.correo);
+            const bSafe = getSafeEmail(b.correo);
+            const aOnline = (presenciaUsuarios[aSafe] || {}).online === true;
+            const bOnline = (presenciaUsuarios[bSafe] || {}).online === true;
+
+            if (aOnline && !bOnline) return -1;
+            if (!aOnline && bOnline) return 1;
+            return a.nombre.localeCompare(b.nombre);
+        });
+
+        // Actualizar contador en la cabecera del panel de usuarios
+        const onlineCount = filtrados.filter(u => {
+            const safe = getSafeEmail(u.correo);
+            return (presenciaUsuarios[safe] || {}).online === true;
+        }).length;
+
+        const sidebarHeaderEl = document.querySelector('.chat-sidebar-header h3');
+        if (sidebarHeaderEl) {
+            sidebarHeaderEl.textContent = `Equipo (${onlineCount} en línea)`;
+        }
+
+        usersListCont.innerHTML = '';
+        if (filtrados.length === 0) {
+            usersListCont.innerHTML = '<p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:20px 0;">No hay otros usuarios.</p>';
+            return;
+        }
+
+        filtrados.forEach(u => {
+            const safeEmail = getSafeEmail(u.correo);
+            const statusObj = presenciaUsuarios[safeEmail] || { online: false };
+            const isOnline = statusObj.online === true;
+
+            const item = document.createElement('div');
+            item.className = `chat-user-item ${activeChatUser && activeChatUser.correo.toLowerCase() === u.correo.toLowerCase() ? 'active' : ''}`;
+            item.dataset.correo = u.correo;
+
+            let avatarHtml = '';
+            if (u.fotoUrl) {
+                avatarHtml = `<img src="${u.fotoUrl}" class="chat-avatar">`;
+            } else {
+                const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                avatarHtml = `<div class="chat-avatar-placeholder" style="background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));">${iniciales}</div>`;
+            }
+
+            const statusDotClass = isOnline ? 'online' : 'offline';
+
+            item.innerHTML = `
+                ${avatarHtml}
+                <div class="chat-user-info" style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.88rem;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px;">
+                        <span class="presence-badge ${statusDotClass}"></span>
+                        <span>${isOnline ? 'En línea' : 'Desconectado'}</span>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.chat-user-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+                activeChatUser = u;
+                abrirConversacion(u);
+            });
+
+            usersListCont.appendChild(item);
+        });
+    }
+
+    function abrirConversacion(u) {
+        const formInput = document.getElementById('chat-input-form');
+        if (formInput) {
+            formInput.style.opacity = '1';
+            formInput.style.pointerEvents = 'all';
+        }
+
+        const activeName = document.getElementById('chat-active-name');
+        const activeAvatar = document.getElementById('chat-active-avatar');
+        if (activeName) activeName.textContent = u.nombre;
+        if (activeAvatar) {
+            if (u.fotoUrl) {
+                activeAvatar.innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            } else {
+                const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                activeAvatar.innerHTML = iniciales;
+                activeAvatar.style.background = 'linear-gradient(135deg,var(--primary-color),var(--secondary-color))';
+            }
+        }
+        actualizarEstadoChatActivo();
+        renderConversacionMensajes();
+    }
+
+    function actualizarEstadoChatActivo() {
+        const activeStatus = document.getElementById('chat-active-status');
+        if (!activeStatus || !activeChatUser) return;
+        const safeEmail = getSafeEmail(activeChatUser.correo);
+        const statusObj = presenciaUsuarios[safeEmail] || { online: false };
+        if (statusObj.online === true) {
+            activeStatus.innerHTML = '<span style="color:#2ed573;font-weight:600;">● En línea</span>';
+        } else {
+            const ultimaConex = statusObj.ultima_conexion ? new Date(statusObj.ultima_conexion).toLocaleTimeString('es', {hour: '2-digit', minute:'2-digit'}) : '—';
+            activeStatus.textContent = `Desconectado (Últ. vez a las ${ultimaConex})`;
+        }
+    }
+
+    function renderConversacionMensajes() {
+        const messagesCont = document.getElementById('chat-messages-container');
+        if (!messagesCont || !activeChatUser) return;
+
+        messagesCont.innerHTML = '';
+
+        const filtrados = todosLosMensajes.filter(m => 
+            (m.sender && m.receiver) &&
+            ((m.sender.toLowerCase() === sesion.correo.toLowerCase() && m.receiver.toLowerCase() === activeChatUser.correo.toLowerCase()) ||
+            (m.sender.toLowerCase() === activeChatUser.correo.toLowerCase() && m.receiver.toLowerCase() === sesion.correo.toLowerCase()))
+        );
+
+        if (filtrados.length === 0) {
+            messagesCont.innerHTML = `<div style="text-align:center;color:var(--text-muted);margin-top:100px;font-size:0.85rem;">
+                <p>No hay mensajes en esta conversación. ¡Di hola! 👋</p>
+            </div>`;
+            return;
+        }
+
+        const ordenados = [...filtrados].sort((a,b) => a.timestamp - b.timestamp);
+
+        ordenados.forEach(m => {
+            const isSentByMe = m.sender.toLowerCase() === sesion.correo.toLowerCase();
+            const row = document.createElement('div');
+            row.className = `message-row ${isSentByMe ? 'sent' : 'received'}`;
+            
+            const timeFmt = new Date(m.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+            
+            row.innerHTML = `
+                <div class="message-bubble">${m.text}</div>
+                <div class="message-time">${timeFmt}</div>
+            `;
+            messagesCont.appendChild(row);
+        });
+
+        setTimeout(() => {
+            messagesCont.scrollTop = messagesCont.scrollHeight;
+        }, 30);
+    }
+
+    document.getElementById('chat-input-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById('chat-input-text');
+        if (!inputEl || !activeChatUser) return;
+        const text = inputEl.value.trim();
+        if (!text) return;
+
+        const msgObj = {
+            sender: sesion.correo,
+            receiver: activeChatUser.correo,
+            text: text,
+            timestamp: Date.now()
+        };
+
+        try {
+            await DB.enviarMensaje(msgObj);
+            inputEl.value = '';
+            const messagesCont = document.getElementById('chat-messages-container');
+            if (messagesCont) messagesCont.scrollTop = messagesCont.scrollHeight;
+        } catch (err) {
+            console.error("Error al enviar mensaje:", err);
+            showNotification('Error al enviar el mensaje.', 'error');
+        }
+    });
+
+    window._renderChatUsers = renderChatUsers;
+
+    DB.listenMensajes((mensajes) => {
+        todosLosMensajes = mensajes || [];
+        if (activeChatUser) {
+            renderConversacionMensajes();
+        }
+    });
+
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'chat-view') {
+            link.addEventListener('click', () => {
+                setTimeout(renderChatUsers, 50);
+            });
+        }
     });
 
     // ─── LISTENERS FIREBASE EN TIEMPO REAL ───────────────────
