@@ -965,12 +965,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
         const esAdminAgenda = sesionActual?.rol === 'Admin' || sesionActual?.rol === 'SuperLider' || sesionActual?.rol === 'Lider';
 
+        // Obtener días del mes actual y del siguiente
+        const allDays0 = getMonthDays(0);
+        const allDays1 = getMonthDays(1);
+        const combinedDays = [...allDays0, ...allDays1];
+
+        // Solo domingos y miércoles que NO hayan expirado completamente
+        const sundays = combinedDays.filter(d => {
+            if (d.getDay() !== 0) return false;
+            return !servicioExpirado(d, '7:00 PM');
+        });
+        const wednesdays = combinedDays.filter(d => {
+            if (d.getDay() !== 3) return false;
+            return !servicioExpirado(d, '7:00 PM');
+        });
+
+        if (titleEl) titleEl.textContent = `Agenda de Servicios`;
+        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participarás';
+
         /**
          * Construye la tabla de servicios para un grupo de días.
          * Cada columna = un día, cada fila = un horario.
-         * Los servicios ya expirados se muestran atenuados y deshabilitados.
          */
-        const buildTable = (days, times, prefix, dayLabel, colorClass, monthNameLong) => {
+        const buildTable = (days, times, prefix, dayLabel, colorClass) => {
             if (days.length === 0) return '';
 
             // Formato de cabecera: "Dom\n4 may"
@@ -992,7 +1009,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             times.forEach((time, ti) => {
                 t += `<tr><td><strong>${time}</strong></td>`;
                 days.forEach((d, di) => {
-                    // El valor ahora incluye "de [mes]" para evitar ambigüedades entre el mes actual y el siguiente
+                    const monthNameLong = d.toLocaleDateString('es', { month: 'long' });
                     const value    = `${dayLabel} ${d.getDate()} de ${monthNameLong} a las ${time}`;
                     const id       = `${prefix}-${ti}-${di}`;
                     const expirado = servicioExpirado(d, time);
@@ -1003,7 +1020,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <span class="time-label compact-label" style="cursor:default;font-size:0.75rem;color:var(--text-muted);">Finalizado</span>
                         </td>`;
                     } else if (isReserved && esAdminAgenda) {
-                        // Admin/SuperLider: mostrar ✓ con botón de cancelar
                         t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
                             <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
                                 <span class="time-label compact-label" style="background:rgba(46,213,115,0.2);border-color:#2ed573;color:#2ed573;cursor:default;">✓ Reservado</span>
@@ -1024,57 +1040,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             return t;
         };
 
-        const getMonthHtml = (offset) => {
-            const allDays = getMonthDays(offset);
-            const monthName = allDays[0].toLocaleDateString('es', { month: 'long', year: 'numeric' });
-            const monthNameLong = allDays[0].toLocaleDateString('es', { month: 'long' });
-            const monthTitle = monthName.charAt(0).toUpperCase() + monthName.slice(1);
-
-            const sundays = allDays.filter(d => {
-                if (d.getDay() !== 0) return false;
-                return !servicioExpirado(d, '7:00 PM');
-            });
-            const wednesdays = allDays.filter(d => {
-                if (d.getDay() !== 3) return false;
-                return !servicioExpirado(d, '7:00 PM');
-            });
-
-            let html = `<div class="agenda-month-section" style="margin-bottom:30px; border-bottom:1px dashed rgba(255,255,255,0.08); padding-bottom:15px;">
-                <h3 style="font-size:1.1rem; color:var(--primary-color); margin-bottom:16px; display:flex; align-items:center; gap:8px;">
-                    📅 ${monthTitle}
-                </h3>`;
-
-            if (sundays.length === 0 && wednesdays.length === 0) {
-                html += `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">
-                    No quedan servicios disponibles este mes.
-                </div>`;
-            } else {
-                if (sundays.length > 0) {
-                    html += `<h4 class="agenda-section-title agenda-title-domingo" style="margin-top:10px;font-size:0.9rem;">☀️ Servicios de Domingo</h4>`;
-                    html += buildTable(sundays, ['7:30 AM','11:00 AM','1:00 PM','7:00 PM'], `sun-${offset}`, 'Domingo', 'domingo', monthNameLong);
-                }
-                if (wednesdays.length > 0) {
-                    html += `<h4 class="agenda-section-title agenda-title-miercoles" style="margin-top:10px;font-size:0.9rem;">🌙 Servicios de Miércoles</h4>`;
-                    html += buildTable(wednesdays, ['7:00 PM'], `wed-${offset}`, 'Miércoles', 'miercoles', monthNameLong);
-                }
+        let html = '';
+        if (sundays.length === 0 && wednesdays.length === 0) {
+            html = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+                <div style="font-size:2.5rem;margin-bottom:12px;">📅</div>
+                <p>No quedan servicios disponibles.</p>
+                <p style="font-size:0.85rem;margin-top:6px;">Los servicios aparecen hasta 2 horas después de su inicio.</p>
+            </div>`;
+        } else {
+            if (sundays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-domingo">☀️ Servicios de Domingo</h3>';
+                html += buildTable(sundays, ['7:30 AM','11:00 AM','1:00 PM','7:00 PM'], 'sun', 'Domingo', 'domingo');
             }
-            html += `</div>`;
-            return { html, allDays };
-        };
-
-        const month0 = getMonthHtml(0);
-        const month1 = getMonthHtml(1);
-
-        if (titleEl) titleEl.textContent = `Agenda Mensual`;
-        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participarás';
-
-        container.innerHTML = month0.html + month1.html;
+            if (wednesdays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-miercoles">🌙 Servicios de Miércoles</h3>';
+                html += buildTable(wednesdays, ['7:00 PM'], 'wed', 'Miércoles', 'miercoles');
+            }
+        }
+        container.innerHTML = html;
 
         const btnVerReservas = document.getElementById('btn-ver-reservas');
         if (btnVerReservas) btnVerReservas.style.display = (sesionActual?.rol === 'Admin') ? 'inline-block' : 'none';
 
         // Auto-refrescar la agenda cuando expire el próximo servicio (combinando ambos meses)
-        programarRefrescoAgenda([...month0.allDays, ...month1.allDays]);
+        programarRefrescoAgenda(combinedDays);
     }
 
     /**
