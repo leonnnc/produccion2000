@@ -1,0 +1,3009 @@
+// ==========================================
+// DASHBOARD ERP — dashboard.js
+// ==========================================
+import { DB, AUTH, STORAGE } from './firebase.js';
+import { hashPassword, showNotification } from './utils.js';
+
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// ─── CAPA DE COMPATIBILIDAD localStorage ↔ Firebase ─────
+// Sincroniza Firebase → localStorage al cargar, y localStorage → Firebase al escribir
+const SYNC_KEYS = [
+    'usuarios_registrados','proyectos_creados',
+    'servicios_reservados','asistencias_proyectos','aceptaciones_tareas',
+    'comentarios','recursos_pdfs','recursos_videos','lideres_area'
+];
+
+// Parchear localStorage.setItem para sincronizar a Firebase automáticamente
+let isSyncingFromFirebase = false;
+const _lsSetItem = localStorage.setItem.bind(localStorage);
+
+localStorage.setItem = function(key, value) {
+    _lsSetItem(key, value);
+    if (isSyncingFromFirebase || !SYNC_KEYS.includes(key)) return;
+    try {
+        const data = JSON.parse(value);
+        const writeMap = {
+            'usuarios_registrados': () => DB.setUsuarios(data),
+            'proyectos_creados':    () => DB.setProyectos(data),
+            'servicios_reservados': () => DB.setServicios(data),
+            'asistencias_proyectos':() => DB.setAsistencias(data),
+            'aceptaciones_tareas':  () => DB.setAceptaciones(data),
+            'comentarios':          () => DB.setComentarios(data),
+            'recursos_pdfs':        () => DB.setPdfs(data),
+            'recursos_videos':      () => DB.setVideos(data),
+            'lideres_area':         () => DB.setLideres(data),
+        };
+        if (writeMap[key]) writeMap[key]().catch(() => {});
+    } catch(e) {}
+};
+
+function updateLocalCache(key, data) {
+    if (data === null || data === undefined) return;
+    isSyncingFromFirebase = true;
+    try {
+        _lsSetItem(key, JSON.stringify(data));
+    } finally {
+        isSyncingFromFirebase = false;
+    }
+}
+
+// getSafeEmail en scope global para uso en logout y presencia
+function getSafeEmail(email) {
+    if (!email) return '';
+    return email.toLowerCase().replace(/\./g, '_').replace(/@/g, '_at_');
+}
+
+// Bandera para saber si ya cargamos la app para poder re-renderizar
+let appReady = false;
+
+async function sincronizarDesdeFirebase() {
+    // Sincronización inicial — carga todos los datos antes de renderizar
+    const [usr, proy, serv, asi, acep, com, pdfs, vids, lid] = await Promise.all([
+        DB.getUsuarios(), DB.getProyectos(), DB.getServicios(),
+        DB.getAsistencias(), DB.getAceptaciones(), DB.getComentarios(),
+        DB.getPdfs(), DB.getVideos(), DB.getLideres()
+    ]);
+    updateLocalCache('usuarios_registrados', usr);
+    updateLocalCache('proyectos_creados', proy);
+    updateLocalCache('servicios_reservados', serv);
+    updateLocalCache('asistencias_proyectos', asi);
+    updateLocalCache('aceptaciones_tareas', acep);
+    updateLocalCache('comentarios', com);
+    updateLocalCache('recursos_pdfs', pdfs);
+    updateLocalCache('recursos_videos', vids);
+    updateLocalCache('lideres_area', lid);
+
+    // Listeners en tiempo real — solo actualizan UI cuando appReady=true
+    // Usan window.* para evitar referencias a funciones no definidas aún
+    DB.listenUsuarios(d => {
+        updateLocalCache('usuarios_registrados', d);
+        if (!appReady) return;
+        if (window._cargarTablaUsuarios)     window._cargarTablaUsuarios();
+        if (window._actualizarEstadisticas)  window._actualizarEstadisticas();
+        if (window._renderOnlineWidget)      window._renderOnlineWidget();
+    });
+    DB.listenProyectos(d => {
+        updateLocalCache('proyectos_creados', d);
+        if (!appReady) return;
+        if (window._renderProyectos)         window._renderProyectos();
+        if (window._renderDashboard)         window._renderDashboard();
+    });
+    DB.listenServicios(d => {
+        updateLocalCache('servicios_reservados', d);
+        if (!appReady) return;
+        if (window._renderReservas)          window._renderReservas();
+        if (window._actualizarEstadisticas)  window._actualizarEstadisticas();
+    });
+    DB.listenPdfs(d => {
+        updateLocalCache('recursos_pdfs', d);
+        if (!appReady) return;
+        if (window._renderDashProgramacion)  window._renderDashProgramacion();
+        if (window._renderRecursos)          window._renderRecursos();
+    });
+    DB.listenVideos(d => {
+        updateLocalCache('recursos_videos', d);
+        if (!appReady) return;
+        if (window._renderRecursos)          window._renderRecursos();
+    });
+}
+
+// Variable global para el offset de la agenda
+let agendaMonthOffset = 0;
+
+// Constantes globales
+const ADMIN_MAESTRO = 'admin@produccion.com';
+
+const AREA_MAP = {
+    'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
+    'coordinacion': 'Coordinación', 'tecnica': 'Técnica', 'switchers': 'Técnica', 'camaras': 'Técnica',
+    'streaming': 'Streaming', 'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
+    'protocolos': 'Protocolos', 'administracion': 'Administración'
+};
+
+function normalizarArea(area) {
+    if (!area) return '';
+    return AREA_MAP[area.toLowerCase()] || area;
+}
+
+const SERVICIOS_SEMANA = [
+    { label: '☀️ Domingo · 1er Servicio (7:30 AM)',  value: 'dom-1' },
+    { label: '☀️ Domingo · 2do Servicio (11:00 AM)', value: 'dom-2' },
+    { label: '☀️ Domingo · 3er Servicio (1:00 PM)',  value: 'dom-3' },
+    { label: '☀️ Domingo · 4to Servicio (7:00 PM)',  value: 'dom-4' },
+    { label: '🌙 Miércoles · Servicio (7:00 PM)',    value: 'mie-1' },
+];
+
+// showNotification se importa desde utils.js
+
+function confirmar(titulo, mensaje, onOk) {
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-title').textContent   = titulo;
+    document.getElementById('confirm-message').textContent = mensaje;
+    modal.classList.remove('hidden');
+    const btnOkOld = document.getElementById('confirm-ok');
+    const btnOk    = btnOkOld.cloneNode(true);
+    btnOkOld.parentNode.replaceChild(btnOk, btnOkOld);
+    const btnCancel = document.getElementById('confirm-cancel');
+    const close = () => modal.classList.add('hidden');
+    btnOk.addEventListener('click', () => { close(); onOk(); });
+    btnCancel.onclick = close;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+
+    // ── Helper para el overlay de carga ──────────────────────
+    const overlay    = document.getElementById('dash-loading-overlay');
+    const overlayMsg = document.getElementById('dash-loading-msg');
+    
+    function setLoadingMsg(msg) {
+        if (overlayMsg) overlayMsg.textContent = msg;
+    }
+    
+    let overlayTimeout;
+    function ocultarOverlay() {
+        if (!overlay) return;
+        overlay.style.opacity = '0';
+        overlay.style.transform = 'scale(1.02)';
+        setTimeout(() => { overlay.style.display = 'none'; }, 420);
+    }
+    
+    // Seguro: ocultar overlay máximo en 2 segundos si algo falla
+    overlayTimeout = setTimeout(ocultarOverlay, 2000);
+
+    // ── Leer sesión guardada por el login (instantáneo, sin red) ─
+    const sesionRaw = sessionStorage.getItem('sesion_activa');
+    let sesion = sesionRaw ? JSON.parse(sesionRaw) : null;
+    if (!sesion) { window.location.replace('index.html'); return; }
+
+    // ── Ocultar overlay — mostrar dashboard AHORA ────────────
+    clearTimeout(overlayTimeout);
+    ocultarOverlay();
+    appReady = true;
+
+    // ── Sincronizar Firebase en background (no bloquea la UI) ─
+    sincronizarDesdeFirebase()
+        .then(() => {
+            migrarFormatosServicios();
+            // Verificar que el usuario siga existiendo y su rol sea correcto
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const usuarioReal = usuarios.find(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (!usuarioReal) {
+                sessionStorage.removeItem('sesion_activa');
+                window.location.replace('index.html');
+                return;
+            }
+            if (usuarioReal.rol !== sesion.rol || usuarioReal.area !== sesion.area || usuarioReal.nombre !== sesion.nombre) {
+                sesion.rol    = usuarioReal.rol;
+                sesion.area   = usuarioReal.area || '';
+                sesion.nombre = usuarioReal.nombre;
+                sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+            }
+            // Refrescar UI con datos frescos de Firebase
+            if (window._actualizarEstadisticas) window._actualizarEstadisticas();
+            if (window._renderDashboard)        window._renderDashboard();
+            if (window._renderReservas)         window._renderReservas();
+            if (window._renderDashProgramacion) window._renderDashProgramacion();
+            if (window._cargarTablaUsuarios)    window._cargarTablaUsuarios();
+        })
+        .catch(() => {}); // Continuar sin datos frescos si hay error de red
+
+
+    const displayRole = document.querySelector('.user-role');
+    if (displayRole) {
+        const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+        displayRole.textContent = roleMap[sesion.rol] || 'Siervo';
+    }
+
+    const avatarEl = document.querySelector('.user-info .avatar');
+    if (avatarEl) {
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        if (u && u.fotoUrl) {
+            avatarEl.innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            avatarEl.style.fontSize = '';
+            avatarEl.style.fontWeight = '';
+        } else {
+            const iniciales = sesion.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+            avatarEl.textContent = iniciales;
+            avatarEl.style.fontSize = '1rem';
+            avatarEl.style.fontWeight = '800';
+        }
+    }
+
+    const esAdmin = sesion.rol === 'Admin' || sesion.rol === 'SuperLider';
+    const esLider = sesion.rol === 'Lider';
+
+    const permitido = {
+        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
+        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
+        'Lider':      ['dashboard-view','usuarios-view','agenda-view','recursos-view','chat-view'],
+        'Siervo':     ['dashboard-view','agenda-view','recursos-view','chat-view']
+    };
+    const acceso = permitido[sesion.rol] || permitido['Siervo'];
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
+        link.parentElement.style.display = acceso.includes(link.getAttribute('data-target')) ? '' : 'none';
+    });
+
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
+        const text = link.textContent.trim();
+        if (text) link.setAttribute('title', text);
+    });
+    document.querySelector('.logout-btn')?.setAttribute('title', 'Cerrar Sesion');
+
+    document.querySelector('.logout-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        confirmar('Cerrar sesion', '\u00bfSeguro que quieres salir?', async () => {
+            // Marcar offline antes de salir
+            try { await DB.setOffline(getSafeEmail(sesion.correo)); } catch(e) {}
+            sessionStorage.removeItem('sesion_activa');
+            AUTH.logout();
+            window.location.replace('index.html');
+        });
+    });
+
+    const navLinks     = document.querySelectorAll('.sidebar-nav .nav-link');
+    const viewSections = document.querySelectorAll('.view-section');
+
+    function irA(targetId) {
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        const link = document.querySelector(`.nav-link[data-target="${targetId}"]`);
+        if (link) link.parentElement.classList.add('active');
+        viewSections.forEach(v => { v.classList.remove('active-view'); v.classList.add('hidden-view'); });
+        const target = document.getElementById(targetId);
+        if (target) { target.classList.remove('hidden-view'); target.classList.add('active-view'); }
+        // Regenerar agenda al navegar a ella
+        if (targetId === 'agenda-view') setTimeout(() => generateAgendaMonth(), 100);
+    }
+
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => { e.preventDefault(); irA(link.getAttribute('data-target')); });
+    });
+
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const modalId = btn.getAttribute('data-modal');
+            if (modalId) document.getElementById(modalId)?.classList.add('hidden');
+        });
+    });
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+    });
+
+    // ─── ESTADISTICAS ────────────────────────────────────────
+    function actualizarEstadisticas() {
+        const sets = [
+            { key: 'usuarios_registrados', statId: 'stat-usuarios',  labelId: 'stat-usuarios-label',  empty: 'Sin registros', filled: n => `${n} activos`,
+              filter: arr => arr.filter(u => u.correo?.toLowerCase() !== ADMIN_MAESTRO) },
+            { key: 'proyectos_creados',    statId: 'stat-proyectos', labelId: 'stat-proyectos-label', empty: 'Sin eventos', filled: n => `${n} en total` },
+            { key: 'servicios_reservados', statId: 'stat-servicios', labelId: 'stat-servicios-label', empty: 'Sin reservas',  filled: n => `${n} este mes` },
+        ];
+        sets.forEach(({ key, statId, labelId, empty, filled, filter }) => {
+            let arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (filter) arr = filter(arr);
+            const n = arr.length;
+            const el = document.getElementById(statId);
+            const lb = document.getElementById(labelId);
+            if (el) el.textContent = n;
+            if (lb) { lb.textContent = n === 0 ? empty : filled(n); lb.className = `trend ${n > 0 ? 'positive' : 'neutral'}`; }
+        });
+    }
+    // Exportar globales para que los listeners en tiempo real puedan llamarlas
+    window._actualizarEstadisticas = actualizarEstadisticas;
+    actualizarEstadisticas();
+
+    // ─── TARJETA DE BIENVENIDA CON ROL Y ACCESOS ─────────────
+    const bienvenidaContent = document.getElementById('bienvenida-content');
+    if (bienvenidaContent) {
+        const hora = new Date().getHours();
+        const momento = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+        const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+        const rolLabel = roleMap[sesion.rol] || 'Siervo';
+        const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+        const rolColor = roleColors[sesion.rol] || '#2ed573';
+
+        const accesosPorRol = {
+            'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+            'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+            'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
+            'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
+        };
+        const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
+
+        bienvenidaContent.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
+                <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
+                    ${sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase()}
+                </div>
+                <div>
+                    <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
+                        ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                    </div>
+                </div>
+            </div>`;
+
+        // Abrir modal de perfil al hacer clic en el avatar
+        setTimeout(() => {
+            document.getElementById('btn-abrir-perfil')?.addEventListener('click', () => abrirModalPerfil());
+        }, 100);
+    }
+
+    // ─── CARDS DE USUARIOS ───────────────────────────────────
+    const usuariosContainer = document.getElementById('usuarios-cards-container');
+
+    function accionesParaRol(u) {
+        if (!esAdmin) return '';
+        const editBtn  = `<button class="btn-secondary btn-edit" style="padding:5px 10px;font-size:0.75rem;">✏️ Editar</button>`;
+        const delBtn   = `<button class="btn-danger btn-del" style="padding:5px 10px;font-size:0.75rem;">🗑️</button>`;
+
+        // Botón líder de área
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const esLiderDeArea = u.area && lideres[u.area] === u.nombre;
+        const liderBtn = u.area ? (esLiderDeArea
+            ? `<button class="btn-secondary btn-quitar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffa500;border-color:rgba(255,165,0,0.4);">👑 Quitar Líder</button>`
+            : `<button class="btn-secondary btn-asignar-lider" style="padding:5px 10px;font-size:0.75rem;color:#ffd166;border-color:rgba(255,209,102,0.4);">👑 Asignar Líder</button>`
+        ) : '';
+
+        // Botones de jerarquía
+        let jerarquia = '';
+        if (u.rol === 'Siervo') {
+            jerarquia = `<button class="btn-secondary btn-upgrade" data-role="lider" style="padding:5px 10px;font-size:0.75rem;color:#4facfe;border-color:rgba(79,172,254,0.4);">↑ Líder</button>
+                         <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
+        } else if (u.rol === 'Lider') {
+            jerarquia = `<button class="btn-downgrade btn-downgrade-btn" data-role="siervo" style="padding:5px 10px;font-size:0.75rem;">↓ Siervo</button>
+                         <button class="btn-secondary btn-upgrade" data-role="superlider" style="padding:5px 10px;font-size:0.75rem;color:#ff6b6b;border-color:rgba(255,107,107,0.4);">↑ SuperLíder</button>`;
+        } else if (u.rol === 'SuperLider') {
+            jerarquia = `<button class="btn-downgrade btn-downgrade-btn" data-role="lider" style="padding:5px 10px;font-size:0.75rem;">↓ Líder</button>`;
+        }
+
+        return `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);">
+                ${editBtn}${liderBtn}
+                <div style="flex:1;"></div>
+                ${delBtn}
+            </div>
+            ${jerarquia ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${jerarquia}</div>` : ''}`;
+    }
+
+    function crearCardUsuario(u) {
+        const roleClasses = { 'Admin': 'role-admin', 'SuperLider': 'role-superlider', 'Lider': 'role-lider', 'Siervo': 'role-siervo' };
+        const rolClass = roleClasses[u.rol] || 'role-siervo';
+        const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
+        const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+        const rolColor = roleColors[u.rol] || '#2ed573';
+        const fechaReg = u.fecha ? new Date(u.fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '—';
+
+        // Indicador de líder de área
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const esLiderDeArea = u.area && lideres[u.area] === u.nombre;
+        const liderIndicador = esLiderDeArea
+            ? ` <span style="font-size:0.7rem;background:rgba(255,209,102,0.15);border:1px solid rgba(255,209,102,0.4);color:#ffd166;border-radius:20px;padding:1px 8px;">👑 Líder</span>`
+            : '';
+        const claveTemporalIndicador = u.clave_temporal
+            ? ` <span style="font-size:0.7rem;background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4);color:#ff4757;border-radius:20px;padding:1px 8px;">🔑 Clave temporal</span>`
+            : '';
+
+        const avatarContent = u.fotoUrl
+            ? `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
+            : iniciales;
+
+        const card = document.createElement('div');
+        card.dataset.correo = u.correo;
+        card.className = 'usuario-card';
+        card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;transition:border-color 0.2s;';
+        // Info de líderes del área
+        const superliderInfo = (() => {
+            const todos = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const sl = todos.find(x => x.rol === 'SuperLider');
+            return sl ? sl.nombre : null;
+        })();
+        const liderDelArea = lideres[u.area] || null;
+        const jerarquiaHtml = (u.rol === 'Siervo' || u.rol === 'Lider') ? `
+            <div style="font-size:0.72rem;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap;padding-left:4px;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;margin-top:2px;">
+                ${superliderInfo ? `<span>👑 SuperLíder: <strong style="color:#ff6b6b;">${superliderInfo}</strong></span>` : ''}
+                ${liderDelArea && liderDelArea !== u.nombre ? `<span>👀 Líder: <strong style="color:#ffd166;">${liderDelArea}</strong></span>` : ''}
+            </div>` : '';
+        const areaMostrada = (u.area === 'Técnica' && u.subarea) ? u.subarea : (u.area || '—');
+        const subareaDisplay = (u.subarea && u.area !== 'Técnica') ? ` <span style="font-size:0.68rem;background:rgba(79,172,254,0.12);border:1px solid rgba(79,172,254,0.3);color:var(--primary-color);border-radius:20px;padding:1px 7px;">${u.subarea}</span>` : '';
+        card.innerHTML = `
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;overflow:hidden;">${avatarContent}</div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:700;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}${liderIndicador}${claveTemporalIndicador}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.correo}</div>
+                </div>
+                <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
+            </div>
+            <div style="display:flex;gap:14px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;padding-left:4px;">
+                <span>🎯 ${areaMostrada}${subareaDisplay}</span>
+                <span>📢 ${u.telefono || '—'}</span>
+                <span>📅 ${fechaReg}</span>
+            </div>
+            ${jerarquiaHtml}
+            ${u.correo === sesion.correo ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);"><button class="btn-secondary btn-mi-perfil" style="padding:5px 12px;font-size:0.75rem;color:var(--primary-color);border-color:rgba(79,172,254,0.4);">👤 Mi Perfil</button></div>` : ''}
+            ${accionesParaRol(u)}`;
+        return card;
+    }
+
+
+    // Migrar áreas legacy en localStorage (minúsculas → formato correcto)
+    (function migrarAreas() {
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        let cambios = false;
+        usuarios.forEach(u => {
+            const normalizada = normalizarArea(u.area);
+            if (normalizada !== u.area) { u.area = normalizada; cambios = true; }
+        });
+        if (cambios) localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+    })();
+
+    function cargarTablaUsuarios(filtroRol = '', filtroArea = '') {
+        if (!usuariosContainer) return;
+        usuariosContainer.innerHTML = '';
+        let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        // Ocultar el admin maestro y todos los usuarios con rol Admin
+        usuarios = usuarios.filter(u => u.correo.toLowerCase() !== ADMIN_MAESTRO && u.rol !== 'Admin');
+        
+        // Si es Líder, solo mostrar siervos de su área
+        if (esLider) {
+            const areaLider = (sesion.area || '').toLowerCase();
+            usuarios = usuarios.filter(u => u.rol === 'Siervo' && (u.area || '').toLowerCase() === areaLider);
+        }
+        
+        if (filtroRol)  usuarios = usuarios.filter(u => u.rol === filtroRol);
+        if (filtroArea) usuarios = usuarios.filter(u => (u.area || '').toLowerCase() === filtroArea.toLowerCase());
+        if (usuarios.length === 0) {
+            usuariosContainer.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);"><div style="font-size:2rem;margin-bottom:10px;">👤</div><p>No hay usuarios con esos filtros.</p></div>`;
+        } else {
+            usuarios.forEach(u => usuariosContainer.appendChild(crearCardUsuario(u)));
+        }
+    }
+    
+    // Exportar a window para los listeners
+    window._cargarTablaUsuarios = () => cargarTablaUsuarios(
+        document.getElementById('filtro-rol')?.value || '',
+        document.getElementById('filtro-area')?.value || ''
+    );
+    cargarTablaUsuarios();
+
+    // Si es Líder: ocultar filtros y mostrar título con su área
+    if (esLider) {
+        document.getElementById('filtro-rol')?.closest('div')?.style && (document.getElementById('filtro-rol').closest('div[style]').style.display = 'none');
+        const tituloEl = document.querySelector('#usuarios-view .panel-heading h2');
+        if (tituloEl) tituloEl.textContent = `Siervos de ${sesion.area || 'mi área'}`;
+    }
+
+    document.getElementById('filtro-rol')?.addEventListener('change',  e => cargarTablaUsuarios(e.target.value, document.getElementById('filtro-area').value));
+    document.getElementById('filtro-area')?.addEventListener('change', e => cargarTablaUsuarios(document.getElementById('filtro-rol').value, e.target.value));
+
+    // ─── ACCIONES CARDS USUARIOS ─────────────────────────────
+    const tablaUsuariosAdmin = document.getElementById('usuarios-cards-container');
+
+    // Botón Mi Perfil — disponible para todos los roles
+    document.getElementById('usuarios-cards-container')?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-mi-perfil')) abrirModalPerfil();
+    });
+
+    if (tablaUsuariosAdmin && esAdmin) {
+        tablaUsuariosAdmin.addEventListener('click', (e) => {
+            const card = e.target.closest('[data-correo]');
+            if (!card) return;
+            const correoUsuario = card.dataset.correo;
+            if (e.target.classList.contains('btn-edit')) { openEditModalByCorreo(correoUsuario); }
+            if (e.target.classList.contains('btn-mi-perfil')) { abrirModalPerfil(); }
+
+            if (e.target.classList.contains('btn-del')) {
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || correoUsuario;
+                confirmar('Eliminar usuario', `¿Eliminar a "${nombre}"?`, () => {
+                    let usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    usuarios = usuarios.filter(u => u.correo !== correoUsuario);
+                    localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                    cargarTablaUsuarios(); actualizarEstadisticas();
+                    showNotification(`Usuario "${nombre}" eliminado.`);
+                });
+            }
+            if (e.target.classList.contains('btn-asignar-lider')) {
+                const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const u = usuarios.find(x => x.correo === correoUsuario);
+                if (!u || !u.area) return;
+                const nombre = u.nombre;
+                confirmar('Asignar Líder', `¿Asignar a "${nombre}" como líder de ${u.area}?`, () => {
+                    const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                    lideres[u.area] = nombre;
+                    localStorage.setItem('lideres_area', JSON.stringify(lideres));
+                    cargarTablaUsuarios(document.getElementById('filtro-rol')?.value || '', document.getElementById('filtro-area')?.value || '');
+                    cargarLideres();
+                    showNotification(`${nombre} es ahora líder de ${u.area}.`);
+                });
+            }
+            if (e.target.classList.contains('btn-quitar-lider')) {
+                const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const u = usuarios.find(x => x.correo === correoUsuario);
+                if (!u || !u.area) return;
+                const nombre = u.nombre;
+                confirmar('Quitar Líder', `¿Quitar a "${nombre}" como líder de ${u.area}?`, () => {
+                    const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                    delete lideres[u.area];
+                    localStorage.setItem('lideres_area', JSON.stringify(lideres));
+                    cargarTablaUsuarios(document.getElementById('filtro-rol')?.value || '', document.getElementById('filtro-area')?.value || '');
+                    cargarLideres();
+                    showNotification(`${nombre} ya no es líder de ${u.area}.`);
+                });
+            }
+            if (e.target.classList.contains('btn-upgrade')) {
+                const targetRole = e.target.getAttribute('data-role');
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
+                const roleMap = { 'superlider': 'SuperLider', 'lider': 'Lider', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole];
+                if (!nomRolVer) return; // bloquear cualquier intento de asignar Admin
+                confirmar('Cambiar rol', `¿Ascender a "${nombre}" como ${nomRolVer}?`, () => {
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
+                    if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+                    showNotification(`${nombre} ahora es ${nomRolVer}.`);
+                });
+            }
+            if (e.target.classList.contains('btn-downgrade-btn')) {
+                const targetRole = e.target.getAttribute('data-role');
+                const nombre = card.querySelector('[style*="font-weight:700"]')?.textContent || '';
+                const roleMap = { 'superlider': 'SuperLider', 'lider': 'Lider', 'siervo': 'Siervo' };
+                const nomRolVer = roleMap[targetRole];
+                if (!nomRolVer) return; // bloquear cualquier intento de asignar Admin
+                confirmar('Cambiar rol', `¿Degradar a "${nombre}" como ${nomRolVer}?`, () => {
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const idx = usuarios.findIndex(u => u.correo === correoUsuario);
+                    if (idx !== -1) { usuarios[idx].rol = nomRolVer; localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios)); }
+                    cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+                    showNotification(`${nombre} ahora es ${nomRolVer}.`);
+                });
+            }
+        });
+    }
+
+    const editModal = document.getElementById('edit-user-modal');
+    const editForm  = document.getElementById('edit-user-form');
+    let currentEditCorreo = null;
+
+    function openEditModalByCorreo(correo) {
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo === correo);
+        if (!u) return;
+        currentEditCorreo = correo;
+        document.getElementById('edit-nombre').value   = u.nombre;
+        document.getElementById('edit-correo').value   = u.correo;
+        document.getElementById('edit-password').value = '';
+        const sel = document.getElementById('edit-area');
+        if (sel) for (const opt of sel.options) opt.selected = opt.value === u.area;
+        // Mostrar/ocultar subarea si aplica
+        const subareaGroup = document.getElementById('edit-subarea-group');
+        const subareasEl = document.getElementById('edit-subarea');
+        if (subareaGroup && subareasEl) {
+            subareaGroup.style.display = u.area === 'T\u00e9cnica' ? '' : 'none';
+            if (u.subarea) for (const opt of subareasEl.options) opt.selected = opt.value === u.subarea;
+        }
+        editModal.classList.remove('hidden');
+    }
+
+    editForm?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!currentEditCorreo) return;
+        const nuevoNombre    = document.getElementById('edit-nombre').value.trim();
+        const nuevoCorreo    = document.getElementById('edit-correo').value.trim();
+        const nuevaArea      = document.getElementById('edit-area').value;
+        const nuevaSubarea   = nuevaArea === 'T\u00e9cnica' ? (document.getElementById('edit-subarea')?.value || 'Switcher') : '';
+        const nuevaClave     = document.getElementById('edit-password').value;
+        const correoOriginal = currentEditCorreo;
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const idx = usuarios.findIndex(u => u.correo === correoOriginal);
+        if (idx !== -1) {
+            usuarios[idx].nombre   = nuevoNombre;
+            usuarios[idx].correo   = nuevoCorreo;
+            usuarios[idx].area     = nuevaArea;
+            usuarios[idx].subarea  = nuevaSubarea;
+            if (nuevaClave) {
+                hashPassword(nuevaClave).then(hash => {
+                    usuarios[idx].clave = hash;
+                    localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                });
+            } else {
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+            }
+        }
+        if (correoOriginal === sesion.correo) {
+            sesion.nombre = nuevoNombre; sesion.correo = nuevoCorreo; sesion.area = nuevaArea;
+            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+            if (avatarEl) {
+                const ini = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                avatarEl.textContent = ini;
+            }
+        }
+        cargarTablaUsuarios(document.getElementById('filtro-rol').value, document.getElementById('filtro-area').value);
+        editModal.classList.add('hidden');
+        showNotification('Usuario actualizado correctamente.');
+    });
+
+    // ─── AREAS COUNTER (+/-) ─────────────────────────────────
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('area-plus') || e.target.classList.contains('area-minus')) {
+            const row   = e.target.closest('.area-row');
+            const input = row?.querySelector('.area-cantidad');
+            if (!input) return;
+            const val = parseInt(input.value) || 0;
+            input.value = e.target.classList.contains('area-plus') ? val + 1 : Math.max(0, val - 1);
+            row.classList.toggle('area-activa', parseInt(input.value) > 0);
+        }
+        if (e.target.classList.contains('area-cantidad')) return;
+    });
+    document.addEventListener('input', (e) => {
+        if (e.target.classList.contains('area-cantidad')) {
+            const row = e.target.closest('.area-row');
+            if (row) row.classList.toggle('area-activa', parseInt(e.target.value) > 0);
+        }
+    });
+
+    // ─── PROYECTOS ───────────────────────────────────────────
+    if (!esAdmin) {
+        document.getElementById('crear-proyecto-panel')?.style && (document.getElementById('crear-proyecto-panel').style.display = 'none');
+    }
+
+    function estadoBadge(estado) {
+        const cls = estado === 'Planificado' ? 'estado-planificado' : estado === 'En curso' ? 'estado-en-curso' : 'estado-completado';
+        return `<span class="estado-badge ${cls}">${estado}</span>`;
+    }
+
+    function calcularEstadoProyecto(p) {
+        if (!p.fecha) return 'Planificado';
+        const hora = p.hora || '00:00';
+        const fechaEvento = new Date(`${p.fecha}T${hora}:00`);
+        const ahora = new Date();
+        const manana = new Date(fechaEvento);
+        manana.setDate(manana.getDate() + 1);
+        manana.setHours(0, 0, 0, 0);
+        if (ahora >= manana)      return 'Completado';
+        if (ahora >= fechaEvento) return 'En curso';
+        return 'Planificado';
+    }
+
+    function esProyectoActivo(p) {
+        return calcularEstadoProyecto(p) !== 'Completado';
+    }
+
+    function cuentaRegresiva(p) {
+        if (!p.fecha) return '';
+        const hora = p.hora || '00:00';
+        const fechaEvento = new Date(`${p.fecha}T${hora}:00`);
+        const diff = fechaEvento - new Date();
+        if (diff <= 0) return '';
+        const dias  = Math.floor(diff / 86400000);
+        const horas = Math.floor((diff % 86400000) / 3600000);
+        const mins  = Math.floor((diff % 3600000) / 60000);
+        if (dias > 0)  return `\u23f3 Faltan ${dias}d ${horas}h`;
+        if (horas > 0) return `\u23f3 Faltan ${horas}h ${mins}m`;
+        return `\u23f3 Faltan ${mins} min`;
+    }
+
+    function verificarAlertas() {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const areaUsuario = (sesion.area || '').toLowerCase();
+        proyectos.forEach(p => {
+            if (!p.fecha || !p.hora) return;
+            const fechaEvento = new Date(`${p.fecha}T${p.hora}:00`);
+            const diff = fechaEvento - new Date();
+            if (diff > 55 * 60000 && diff <= 65 * 60000) {
+                const involucrado = esAdmin || (p.areasData && p.areasData.some(a => a.area.toLowerCase() === areaUsuario));
+                if (!involucrado) return;
+                const alertaKey = `alerta_1h_${p.fecha_registro}`;
+                if (!localStorage.getItem(alertaKey)) {
+                    showNotification(`\u26a0\ufe0f "${p.nombre}" comienza en 1 hora. \u00a1Prep\u00e1rate!`, 'success');
+                    localStorage.setItem(alertaKey, '1');
+                }
+                const pushKey = `push_1h_${p.fecha_registro}`;
+                if (!localStorage.getItem(pushKey)) {
+                    enviarNotificacionPush(`\u26a0\ufe0f ${p.nombre}`, 'El evento comienza en 1 hora. \u00a1Prep\u00e1rate!');
+                    localStorage.setItem(pushKey, '1');
+                }
+            }
+        });
+    }
+    verificarAlertas();
+    setInterval(verificarAlertas, 60000);
+
+    // ─── NOTIFICACIONES PUSH DEL NAVEGADOR ───────────────────
+    function solicitarPermisoNotificaciones() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+    solicitarPermisoNotificaciones();
+
+    function enviarNotificacionPush(titulo, cuerpo) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(titulo, { body: cuerpo, icon: '' });
+        }
+    }
+
+    function renderProyectos() {
+        const lista = document.getElementById('proyectos-lista');
+        const historialEl = document.getElementById('proyectos-historial');
+        const count = document.getElementById('proyectos-count');
+        const historialCount = document.getElementById('historial-count');
+        if (!lista) return;
+
+        let proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const filtroEstado = document.getElementById('filtro-estado-proy')?.value || '';
+
+        // Separar activos e historial usando el helper esProyectoActivo
+        const activos   = proyectos.filter(p => esProyectoActivo(p));
+        const historial = proyectos.filter(p => !esProyectoActivo(p));
+
+        // Aplicar filtro de estado solo a activos; 'Completado' siempre da 0 resultados en el panel activo
+        const activosFiltrados = filtroEstado
+            ? activos.filter(p => calcularEstadoProyecto(p) === filtroEstado)
+            : activos;
+
+        if (count) count.textContent = activosFiltrados.length > 0 ? `${activosFiltrados.length} proyecto(s)` : '';
+        if (historialCount) historialCount.textContent = `${historial.length}`;
+
+        // ── Render activos ──
+        lista.innerHTML = '';
+        if (activosFiltrados.length === 0) {
+            lista.innerHTML = '<p style="color:var(--text-muted);padding:16px 0;">No hay eventos especiales activos.</p>';
+        } else {
+            [...activosFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach((p, i) => {
+                const estado    = calcularEstadoProyecto(p);
+                const regresiva = cuentaRegresiva(p);
+                const card = document.createElement('div');
+                const cardEstadoCls = estado === 'Planificado' ? 'estado-planificado-card' : 'estado-en-curso-card';
+                card.className = `proyecto-card ${cardEstadoCls}`;
+                card.dataset.fechaReg = p.fecha_registro;
+                const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+                const horaFmt  = p.hora ? ` \u00b7 ${p.hora}` : '';
+                const areasResumen = p.areasData ? p.areasData.map(a => `${a.area}(${a.cantidad})`).join(', ') : (p.areas || '\u2014');
+                const realIdx = proyectos.indexOf(p);
+
+                let asistenciaHtml = '';
+                if (esAdmin && p.areasData) {
+                    const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                    const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                    const areasDelProy = p.areasData.map(a => a.area.toLowerCase());
+                    const involucrados = usuarios.filter(u => areasDelProy.includes((u.area || '').toLowerCase()));
+                    const confirmados  = involucrados.filter(u => asistencias[`${p.fecha_registro}_${u.correo}`] === 'confirma').length;
+                    const noPueden    = involucrados.filter(u => asistencias[`${p.fecha_registro}_${u.correo}`] === 'no-puedo').length;
+                    const sinResp     = involucrados.length - confirmados - noPueden;
+                    if (involucrados.length > 0) {
+                        asistenciaHtml = `<p class="proy-asistencia-resumen">
+                            <span class="asist-ok">\u2713 ${confirmados}</span>
+                            <span class="asist-no">\u2715 ${noPueden}</span>
+                            <span class="asist-pend">\u25cb ${sinResp} sin resp.</span>
+                        </p>`;
+                    }
+                }
+
+                card.innerHTML = `
+                    <div class="proyecto-card-info">
+                        <h4>${p.nombre} ${estadoBadge(estado)}</h4>
+                        <p>\ud83d\udcc5 ${fechaFmt}${horaFmt} &nbsp;\u00b7&nbsp; \ud83d\udc65 ${p.siervos || '\u2014'} siervos</p>
+                        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;">\ud83c\udfaf ${areasResumen}</p>
+                        ${regresiva ? `<p class="proy-cuenta-regresiva" data-fecha="${p.fecha}" data-hora="${p.hora || '00:00'}">${regresiva}</p>` : ''}
+                        ${asistenciaHtml}
+                    </div>
+                    <div class="proyecto-card-actions">
+                        <button class="btn-secondary btn-ver-proy" data-idx="${realIdx}">Ver</button>
+                        <button class="btn-secondary btn-comentarios-proy" data-key="${p.fecha_registro}" style="font-size:0.75rem;">\ud83d\udcac</button>
+                        ${esAdmin ? `<button class="btn-secondary btn-edit-proy" data-idx="${realIdx}">\u270f\ufe0f</button>` : ''}
+                        ${esAdmin ? `<button class="btn-danger btn-del-proy" data-idx="${realIdx}">\ud83d\uddd1\ufe0f</button>` : ''}
+                    </div>`;
+                lista.appendChild(card);
+            });
+        }
+
+        // ── Render historial (completados, más reciente primero) ──
+        if (historialEl) {
+            historialEl.innerHTML = '';
+            if (historial.length === 0) {
+                historialEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">Sin eventos en el historial.</p>';
+            } else {
+                [...historial].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).forEach(p => {
+                    const realIdx = proyectos.indexOf(p);
+                    const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+                    const areasResumen = p.areasData ? p.areasData.map(a => `${a.area}(${a.cantidad})`).join(', ') : (p.areas || '\u2014');
+                    const item = document.createElement('div');
+                    item.className = 'historial-item';
+                    item.innerHTML = `
+                        <div class="historial-info">
+                            <span class="historial-nombre">${p.nombre} ${estadoBadge('Completado')}</span>
+                            <span class="historial-fecha">\ud83d\udcc5 ${fechaFmt}${p.hora ? ' \u00b7 ' + p.hora : ''}</span>
+                            <span style="font-size:0.75rem;color:var(--text-muted);">\ud83c\udfaf ${areasResumen}</span>
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn-secondary btn-ver-proy" data-idx="${realIdx}" style="padding:3px 8px;font-size:0.75rem;">Ver</button>
+                        </div>`;
+                    historialEl.appendChild(item);
+                });
+            }
+        }
+
+        // Actualizar cuentas regresivas cada minuto
+        clearInterval(window._cuentaRegresivaInterval);
+        window._cuentaRegresivaInterval = setInterval(() => {
+            document.querySelectorAll('.proy-cuenta-regresiva').forEach(el => {
+                const p = { fecha: el.dataset.fecha, hora: el.dataset.hora };
+                const nueva = cuentaRegresiva(p);
+                if (nueva) el.textContent = nueva;
+                else el.remove();
+            });
+        }, 60000);
+    }
+    
+    window._renderProyectos = renderProyectos;
+    renderProyectos();
+
+    document.getElementById('proyectos-lista')?.addEventListener('click', (e) => {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+
+        if (e.target.classList.contains('btn-ver-proy') || e.target.classList.contains('btn-edit-proy') || e.target.classList.contains('btn-del-proy') || e.target.classList.contains('btn-comentarios-proy')) {
+            manejarClickProyecto(e, proyectos);
+        }
+    });
+
+    document.getElementById('proyectos-historial')?.addEventListener('click', (e) => {
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        manejarClickProyecto(e, proyectos);
+    });
+
+    function manejarClickProyecto(e, proyectos) {
+        const idx = parseInt(e.target.dataset.idx);
+        const p   = proyectos[idx];
+        if (!p) return;
+
+        if (e.target.classList.contains('btn-ver-proy')) {
+            const estado    = calcularEstadoProyecto(p);
+            const regresiva = cuentaRegresiva(p);
+            const fechaFmt  = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : '\u2014';
+            const horaFmt   = p.hora || '\u2014';
+            document.getElementById('proy-modal-nombre').textContent = p.nombre;
+            document.getElementById('proy-modal-body').innerHTML = `
+                <div class="proy-detail-row"><span>Estado:</span><span>${estadoBadge(estado)}</span></div>
+                <div class="proy-detail-row"><span>Fecha:</span><span>${fechaFmt}</span></div>
+                <div class="proy-detail-row"><span>Hora:</span><span>${horaFmt}</span></div>
+                ${regresiva ? `<div class="proy-detail-row"><span>Tiempo:</span><span style="color:var(--secondary-color);">${regresiva}</span></div>` : ''}
+                <div class="proy-detail-row"><span>Total siervos:</span><span>${p.siervos || '\u2014'}</span></div>
+                <div class="proy-detail-row"><span>\u00c1reas:</span><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${
+                    p.areasData
+                        ? p.areasData.map(a => {
+                            const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+                            const lider   = lideres[a.area] ? ` \u00b7 ${lideres[a.area]}` : '';
+                            return `<span class="area-badge">${a.area} <strong>${a.cantidad}</strong>${lider ? `<span style="color:var(--secondary-color);font-size:0.7rem;"> ${lider}</span>` : ''}</span>`;
+                          }).join('')
+                        : (p.areas || '\u2014')
+                }</div></div>
+                ${p.desc ? `<div class="proy-detail-row"><span>Notas:</span><span>${p.desc}</span></div>` : ''}
+                <div class="proy-detail-row"><span>Creado:</span><span>${new Date(p.fecha_registro).toLocaleDateString('es')}</span></div>`;
+            document.getElementById('proy-modal-acciones').innerHTML = '';
+            document.getElementById('proyecto-modal').classList.remove('hidden');
+        }
+
+        if (e.target.classList.contains('btn-edit-proy') && esAdmin) {
+            document.getElementById('ep-nombre').value = p.nombre;
+            document.getElementById('ep-fecha').value  = p.fecha || '';
+            document.getElementById('ep-hora').value   = p.hora  || '';
+            document.getElementById('ep-desc').value   = p.desc  || '';
+            document.querySelectorAll('#ep-areas-container .area-row').forEach(row => {
+                const found = p.areasData?.find(a => a.area === row.dataset.area);
+                row.querySelector('.area-cantidad').value = found ? found.cantidad : 0;
+            });
+            document.getElementById('edit-proyecto-modal')._proyKey = p.fecha_registro;
+            document.getElementById('edit-proyecto-modal').classList.remove('hidden');
+        }
+
+        if (e.target.classList.contains('btn-comentarios-proy')) {
+            abrirComentarios(`proy_${p.fecha_registro}`, p.nombre);
+        }
+
+        if (e.target.classList.contains('btn-del-proy') && esAdmin) {
+            confirmar('Eliminar proyecto', `\u00bfEliminar "${p.nombre}"?`, () => {
+                const allProyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                const realIdx = allProyectos.findIndex(x => x.fecha_registro === p.fecha_registro);
+                if (realIdx !== -1) allProyectos.splice(realIdx, 1);
+                localStorage.setItem('proyectos_creados', JSON.stringify(allProyectos));
+                renderProyectos(); actualizarEstadisticas();
+                showNotification('Proyecto eliminado.');
+            });
+        }
+    }
+
+    const formProyectos = document.getElementById('proyectos-form');
+    if (formProyectos && esAdmin) {
+        formProyectos.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById('proj-nombre').value.trim();
+            const fecha  = document.getElementById('proj-fecha').value;
+            const hora   = document.getElementById('proj-hora').value;
+            const desc   = document.getElementById('proj-desc').value.trim();
+            const areasData = [];
+            document.querySelectorAll('#proj-areas-container .area-row').forEach(row => {
+                const cantidad = parseInt(row.querySelector('.area-cantidad').value) || 0;
+                if (cantidad > 0) areasData.push({ area: row.dataset.area, cantidad });
+            });
+            if (areasData.length === 0) { showNotification('Agrega al menos un \u00e1rea con siervos requeridos.', 'error'); return; }
+            const totalSiervos = areasData.reduce((acc, a) => acc + a.cantidad, 0);
+            const areasTexto   = areasData.map(a => `${a.area}(${a.cantidad})`).join(', ');
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            proyectos.push({ nombre, fecha, hora, siervos: totalSiervos, areasData, areas: areasTexto, desc, fecha_registro: new Date().toISOString() });
+            localStorage.setItem('proyectos_creados', JSON.stringify(proyectos));
+            renderProyectos(); actualizarEstadisticas();
+            showNotification(`Proyecto "${nombre}" creado.`);
+            formProyectos.reset();
+            document.querySelectorAll('#proj-areas-container .area-cantidad').forEach(i => i.value = 0);
+            renderDashboardProyectosYTareas();
+            irA('dashboard-view');
+        });
+    }
+
+    // ─── EDITAR PROYECTO ─────────────────────────────────────
+    document.getElementById('edit-proyecto-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const key = document.getElementById('edit-proyecto-modal')._proyKey;
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const idx = proyectos.findIndex(x => x.fecha_registro === key);
+        if (idx === -1) return;
+        const areasData = [];
+        document.querySelectorAll('#ep-areas-container .area-row').forEach(row => {
+            const cantidad = parseInt(row.querySelector('.area-cantidad').value) || 0;
+            if (cantidad > 0) areasData.push({ area: row.dataset.area, cantidad });
+        });
+        proyectos[idx].nombre   = document.getElementById('ep-nombre').value.trim();
+        proyectos[idx].fecha    = document.getElementById('ep-fecha').value;
+        proyectos[idx].hora     = document.getElementById('ep-hora').value;
+        proyectos[idx].desc     = document.getElementById('ep-desc').value.trim();
+        proyectos[idx].areasData = areasData;
+        proyectos[idx].siervos  = areasData.reduce((acc, a) => acc + a.cantidad, 0);
+        proyectos[idx].areas    = areasData.map(a => `${a.area}(${a.cantidad})`).join(', ');
+        localStorage.setItem('proyectos_creados', JSON.stringify(proyectos));
+        document.getElementById('edit-proyecto-modal').classList.add('hidden');
+        renderProyectos(); renderDashboardProyectosYTareas();
+        showNotification('Proyecto actualizado.');
+    });
+
+    // ─── AGENDA MENSUAL ──────────────────────────────────────
+
+    function getMonthDays(offset = 0) {
+        const today = new Date();
+        const month = today.getMonth() + offset;
+        const first = new Date(today.getFullYear(), month, 1);
+        const last  = new Date(today.getFullYear(), month + 1, 0);
+        const days  = [];
+        for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+        return days;
+    }
+
+    /**
+     * Dado un día (Date) y una hora en formato "7:30 AM", retorna el Date exacto del servicio.
+     */
+    function servicioFechaExacta(dia, horaStr) {
+        const m = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (!m) return null;
+        let h = parseInt(m[1]);
+        const min = parseInt(m[2]);
+        const period = m[3].toUpperCase();
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        return new Date(dia.getFullYear(), dia.getMonth(), dia.getDate(), h, min, 0, 0);
+    }
+
+    /**
+     * Retorna true si el servicio ya expiró (pasaron 2h desde su inicio).
+     */
+    function servicioExpirado(dia, horaStr) {
+        const fechaServicio = servicioFechaExacta(dia, horaStr);
+        if (!fechaServicio) return false;
+        const expira = new Date(fechaServicio.getTime() + 2 * 60 * 60 * 1000);
+        return new Date() > expira;
+    }
+
+    function generateAgendaMonth() {
+        const container = document.getElementById('agenda-dynamic-container');
+        const titleEl   = document.getElementById('agenda-week-title');
+        const rangeEl   = document.getElementById('agenda-week-range');
+        if (!container) return;
+
+        const ahora      = new Date();
+        const sesionActual = JSON.parse(sessionStorage.getItem('sesion_activa') || 'null');
+        const userName = sesionActual?.nombre || '';
+        const serviciosGuardados = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const misReservas = new Set(serviciosGuardados.filter(s => s.usuario === userName).map(s => s.servicio));
+        const esAdminAgenda = sesionActual?.rol === 'Admin' || sesionActual?.rol === 'SuperLider' || sesionActual?.rol === 'Lider';
+
+        // Obtener días del mes actual y del siguiente
+        const allDays0 = getMonthDays(0);
+        const allDays1 = getMonthDays(1);
+        const combinedDays = [...allDays0, ...allDays1];
+
+        // Solo domingos y miércoles que NO hayan expirado completamente
+        const sundays = combinedDays.filter(d => {
+            if (d.getDay() !== 0) return false;
+            return !servicioExpirado(d, '7:00 PM');
+        });
+        const wednesdays = combinedDays.filter(d => {
+            if (d.getDay() !== 3) return false;
+            return !servicioExpirado(d, '7:00 PM');
+        });
+
+        if (titleEl) titleEl.textContent = `Agenda de Servicios`;
+        if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participarás';
+
+        /**
+         * Construye la tabla de servicios para un grupo de días.
+         * Cada columna = un día, cada fila = un horario.
+         */
+        const buildTable = (days, times, prefix, dayLabel, colorClass) => {
+            if (days.length === 0) return '';
+
+            // Formato de cabecera: "Dom\n4 may"
+            const fmtHeader = d => {
+                const dia  = d.getDate();
+                const mes  = d.toLocaleDateString('es', { month: 'short' });
+                const esHoy = d.toDateString() === ahora.toDateString();
+                return `${dia} ${mes}${esHoy ? ' 📍' : ''}`;
+            };
+
+            let t = `<div class="table-container" style="margin-bottom:24px;overflow-x:auto;">`;
+            t += `<table class="users-table agenda-reserve-table agenda-table-${colorClass}">`;
+            t += `<thead><tr><th style="width:110px;">Horario</th>`;
+            days.forEach(d => {
+                t += `<th class="text-center agenda-col-${colorClass}">${fmtHeader(d)}<br><small>${dayLabel}</small></th>`;
+            });
+            t += `</tr></thead><tbody>`;
+
+            times.forEach((time, ti) => {
+                t += `<tr><td><strong>${time}</strong></td>`;
+                days.forEach((d, di) => {
+                    const monthNameLong = d.toLocaleDateString('es', { month: 'long' });
+                    const value    = `${dayLabel} ${d.getDate()} de ${monthNameLong} a las ${time}`;
+                    const id       = `${prefix}-${ti}-${di}`;
+                    const expirado = servicioExpirado(d, time);
+                    const isReserved = misReservas.has(value);
+
+                    if (expirado) {
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;opacity:0.35;">
+                            <span class="time-label compact-label" style="cursor:default;font-size:0.75rem;color:var(--text-muted);">Finalizado</span>
+                        </td>`;
+                    } else if (isReserved && esAdminAgenda) {
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                                <span class="time-label compact-label" style="background:rgba(46,213,115,0.2);border-color:#2ed573;color:#2ed573;cursor:default;">✓ Reservado</span>
+                                <button class="btn-cancelar-reserva" data-value="${value}" data-usuario="${userName}" style="font-size:0.65rem;padding:2px 8px;background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4);color:#ff4757;border-radius:6px;cursor:pointer;">✕ Quitar</button>
+                            </div>
+                        </td>`;
+                    } else {
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                            <input type="checkbox" id="${id}" name="agenda-servicios[]" value="${value}" class="time-checkbox" ${isReserved ? 'checked disabled' : ''}>
+                            <label for="${id}" class="time-label compact-label">${isReserved ? '✓' : 'Reservar'}</label>
+                        </td>`;
+                    }
+                });
+                t += `</tr>`;
+            });
+
+            t += `</tbody></table></div>`;
+            return t;
+        };
+
+        let html = '';
+        if (sundays.length === 0 && wednesdays.length === 0) {
+            html = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+                <div style="font-size:2.5rem;margin-bottom:12px;">📅</div>
+                <p>No quedan servicios disponibles.</p>
+                <p style="font-size:0.85rem;margin-top:6px;">Los servicios aparecen hasta 2 horas después de su inicio.</p>
+            </div>`;
+        } else {
+            if (sundays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-domingo">☀️ Servicios de Domingo</h3>';
+                html += buildTable(sundays, ['7:30 AM','11:00 AM','1:00 PM','7:00 PM'], 'sun', 'Domingo', 'domingo');
+            }
+            if (wednesdays.length > 0) {
+                html += '<h3 class="agenda-section-title agenda-title-miercoles">🌙 Servicios de Miércoles</h3>';
+                html += buildTable(wednesdays, ['7:00 PM'], 'wed', 'Miércoles', 'miercoles');
+            }
+        }
+        container.innerHTML = html;
+
+        const btnVerReservas = document.getElementById('btn-ver-reservas');
+        if (btnVerReservas) btnVerReservas.style.display = (sesionActual?.rol === 'Admin') ? 'inline-block' : 'none';
+
+        // Auto-refrescar la agenda cuando expire el próximo servicio (combinando ambos meses)
+        programarRefrescoAgenda(combinedDays);
+    }
+
+    /**
+     * Calcula cuándo expira el próximo servicio activo y programa un setTimeout
+     * para regenerar la agenda automáticamente en ese momento.
+     */
+    function programarRefrescoAgenda(allDays) {
+        clearTimeout(window._agendaRefreshTimer);
+        const ahora = new Date();
+        const todosServicios = [];
+
+        allDays.forEach(d => {
+            const times = d.getDay() === 0
+                ? ['7:30 AM','11:00 AM','1:00 PM','7:00 PM']
+                : d.getDay() === 3 ? ['7:00 PM'] : [];
+            times.forEach(t => {
+                const expira = servicioFechaExacta(d, t);
+                if (expira) {
+                    const expiraMs = expira.getTime() + 2 * 60 * 60 * 1000;
+                    if (expiraMs > ahora.getTime()) todosServicios.push(expiraMs);
+                }
+            });
+        });
+
+        if (todosServicios.length === 0) return;
+        const proximaExpiracion = Math.min(...todosServicios);
+        const msHasta = proximaExpiracion - ahora.getTime();
+
+        window._agendaRefreshTimer = setTimeout(() => {
+            generateAgendaMonth();
+            limpiarServiciosExpirados();
+        }, msHasta + 1000); // +1s de margen
+    }
+    generateAgendaMonth();
+
+    // Handler para quitar reservas propias (Admin/SuperLider/Lider)
+    document.getElementById('agenda-dynamic-container')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-cancelar-reserva');
+        if (!btn) return;
+        const value   = btn.dataset.value;
+        const usuario = btn.dataset.usuario;
+
+        // Lider solo puede quitar reservas de siervos de su área
+        if (sesion.rol === 'Lider') {
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const u = usuarios.find(x => x.nombre === usuario);
+            if (u && (u.area || '').toLowerCase() !== (sesion.area || '').toLowerCase()) {
+                showNotification('Solo puedes quitar reservas de siervos de tu área.', 'error');
+                return;
+            }
+        }
+
+        confirmar('Quitar reserva', `¿Quitar la reserva de "${usuario}" para "${value}"?`, () => {
+            let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            servicios = servicios.filter(s => !(s.servicio === value && s.usuario === usuario));
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            showNotification(`Reserva de "${usuario}" eliminada.`);
+            generateAgendaMonth();
+            renderReservasSemana();
+            actualizarEstadisticas();
+        });
+    });
+
+    document.getElementById('btn-ver-reservas')?.addEventListener('click', () => {
+        const allDays0 = getMonthDays(0);
+        const allDays1 = getMonthDays(1);
+        const m0 = allDays0[0].getMonth();
+        const y0 = allDays0[0].getFullYear();
+        const m1 = allDays1[0].getMonth();
+        const y1 = allDays1[0].getFullYear();
+
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        
+        // Filtrar reservas que pertenecen a los servicios activos de ambos meses
+        const mesServicios = servicios.filter(s => {
+            const f = servicioToDate(s.servicio, s.fecha);
+            if (!f) return false;
+            return (f.getMonth() === m0 && f.getFullYear() === y0) ||
+                   (f.getMonth() === m1 && f.getFullYear() === y1);
+        });
+
+        // Ordenar cronológicamente por la fecha real del servicio
+        mesServicios.sort((a, b) => {
+            const da = servicioToDate(a.servicio, a.fecha);
+            const db = servicioToDate(b.servicio, b.fecha);
+            return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+        });
+
+        const modal     = document.getElementById('reservas-modal');
+        const subtitle  = document.getElementById('reservas-modal-subtitle');
+        const content   = document.getElementById('reservas-modal-content');
+        
+        const monthName0 = allDays0[0].toLocaleDateString('es', { month: 'long' });
+        const monthName1 = allDays1[0].toLocaleDateString('es', { month: 'long' });
+
+        subtitle.textContent = `${monthName0.charAt(0).toUpperCase() + monthName0.slice(1)} y ${monthName1.charAt(0).toUpperCase() + monthName1.slice(1)} \u2014 ${mesServicios.length} reserva(s)`;
+        
+        content.innerHTML = mesServicios.length === 0
+            ? '<p style="color:var(--text-muted);">Nadie ha reservado servicios este mes a\u00fan.</p>'
+            : `<div class="reservas-grid">${mesServicios.map(s => `<div class="reserva-item"><span class="reserva-servicio">\u26ea ${s.servicio}</span><span class="reserva-usuario">${s.usuario}</span></div>`).join('')}</div>`;
+        modal.classList.remove('hidden');
+    });
+
+    const formAgenda = document.getElementById('agenda-form');
+    formAgenda?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const selected = document.querySelectorAll('input[name="agenda-servicios[]"]:checked:not(:disabled)');
+        if (selected.length === 0) { showNotification('Selecciona al menos un horario.', 'error'); return; }
+        const userName = sesion.nombre;
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        selected.forEach(opt => {
+            servicios.push({ servicio: opt.value, usuario: userName, area: sesion.area || '', fecha: new Date().toISOString() });
+        });
+        localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+        actualizarEstadisticas();
+        showNotification(`${selected.length} horario(s) reservado(s).`);
+        generateAgendaMonth();
+        renderReservasSemana();
+        irA('dashboard-view');
+    });
+
+    // ─── LIMPIEZA DE SERVICIOS EXPIRADOS ─────────────────────
+
+    /**
+     * Convierte el string de un servicio reservado a su Date de inicio.
+     * Usa la fecha de reserva (s.fecha) para determinar el mes/año correcto.
+     * Formato del string: "Domingo 4 a las 7:30 AM" o "Miércoles 7 a las 7:00 PM"
+     */
+    const MESES_MAP = {
+        'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3, 'mayo': 4, 'junio': 5,
+        'julio': 6, 'agosto': 7, 'septiembre': 8, 'setiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
+    };
+
+    function servicioToDate(servicioStr, fechaReservaISO) {
+        // Formato nuevo: "Domingo 7 de junio a las 7:30 AM"
+        const mNuevo = servicioStr.match(/^(Domingo|Mi[eé]rcoles)\s+(\d+)\s+de\s+([a-zA-Záéíóú]+)\s+a las\s+(.+)$/i);
+        if (mNuevo) {
+            const [, , numDia, mesNombre, horaStr] = mNuevo;
+            const horaMatch = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+            if (!horaMatch) return null;
+            let h = parseInt(horaMatch[1]);
+            const min = parseInt(horaMatch[2]);
+            const period = horaMatch[3].toUpperCase();
+            if (period === 'PM' && h !== 12) h += 12;
+            if (period === 'AM' && h === 12) h = 0;
+
+            const mesIndex = MESES_MAP[mesNombre.toLowerCase().trim()];
+            if (mesIndex === undefined) return null;
+
+            const ref = fechaReservaISO ? new Date(fechaReservaISO) : new Date();
+            let anio = ref.getFullYear();
+            if (ref.getMonth() === 11 && mesIndex === 0) anio++;
+            if (ref.getMonth() === 0 && mesIndex === 11) anio--;
+
+            return new Date(anio, mesIndex, parseInt(numDia), h, min, 0, 0);
+        }
+
+        // Formato heredado: "Domingo 7 a las 7:30 AM"
+        const m = servicioStr.match(/^(Domingo|Mi[eé]rcoles)\s+(\d+)\s+a las\s+(.+)$/);
+        if (!m) return null;
+        const [, , numDia, horaStr] = m;
+        const horaMatch = horaStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (!horaMatch) return null;
+        let h = parseInt(horaMatch[1]);
+        const min = parseInt(horaMatch[2]);
+        const period = horaMatch[3].toUpperCase();
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+
+        const ref = fechaReservaISO ? new Date(fechaReservaISO) : new Date();
+        return new Date(ref.getFullYear(), ref.getMonth(), parseInt(numDia), h, min, 0, 0);
+    }
+
+    function migrarFormatosServicios() {
+        const raw = localStorage.getItem('servicios_reservados');
+        if (!raw) return;
+        try {
+            let servicios = JSON.parse(raw);
+            let modificado = false;
+            
+            servicios = servicios.map(s => {
+                // Si ya contiene " de ", ya está en el nuevo formato
+                if (s.servicio.includes(' de ')) return s;
+                
+                const f = servicioToDate(s.servicio, s.fecha);
+                if (!f) return s;
+                
+                const diaSemana = f.getDay() === 0 ? 'Domingo' : f.getDay() === 3 ? 'Miércoles' : '';
+                if (!diaSemana) return s;
+                
+                const mesNombre = f.toLocaleDateString('es', { month: 'long' });
+                const partes = s.servicio.split(' a las ');
+                const horaStr = partes[1] || '';
+                
+                const nuevoServicio = `${diaSemana} ${f.getDate()} de ${mesNombre} a las ${horaStr}`;
+                console.log(`Migrando servicio: "${s.servicio}" -> "${nuevoServicio}"`);
+                
+                modificado = true;
+                return { ...s, servicio: nuevoServicio };
+            });
+            
+            if (modificado) {
+                localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            }
+        } catch(e) {
+            console.error("Error al migrar formatos de servicios:", e);
+        }
+    }
+
+    function limpiarServiciosExpirados() {
+        const ahora = new Date();
+        const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
+        let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const antes = servicios.length;
+        servicios = servicios.filter(s => {
+            const f = servicioToDate(s.servicio, s.fecha);
+            if (!f) return true; // si no se puede parsear, conservar
+            const expira = f.getTime() + DOS_HORAS_MS;
+            return ahora.getTime() < expira;
+        });
+        if (servicios.length !== antes) {
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            renderReservasSemana(); actualizarEstadisticas();
+        }
+    }
+    limpiarServiciosExpirados();
+    setInterval(limpiarServiciosExpirados, 60000);
+
+    // ─── SERVICIOS ESTA SEMANA ────────────────────────────────
+    function servicioSortKey(servicioStr, fechaReservaISO) {
+        const d = servicioToDate(servicioStr, fechaReservaISO);
+        return d ? d.getTime() : 0;
+    }
+
+    function renderReservasSemana() {
+        const panel = document.getElementById('servicios-semana-list');
+        if (!panel) return;
+        const userName  = sesion.nombre;
+        const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const visibles  = servicios.filter(s => esAdmin || esLider || s.usuario === userName);
+        panel.innerHTML = '';
+        if (visibles.length === 0) {
+            panel.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados aún.</span></li>';
+            return;
+        }
+        const domingos  = visibles.filter(s => s.servicio.startsWith('Domingo'));
+        const miercoles = visibles.filter(s => s.servicio.startsWith('Miércoles'));
+        const sortServicios = arr => [...arr].sort((a, b) => servicioSortKey(a.servicio, a.fecha) - servicioSortKey(b.servicio, b.fecha));
+
+        const puedeEliminar = (s) => {
+            if (esAdmin) return true;
+            if (esLider) {
+                // Líder solo puede eliminar reservas de su área
+                const u = usuarios.find(x => x.nombre === s.usuario);
+                const areaUsuario = (u?.area || s.area || '').toLowerCase();
+                return areaUsuario === (sesion.area || '').toLowerCase();
+            }
+            return false;
+        };
+
+        const renderGroup = (items, label, colorClass) => {
+            if (items.length === 0) return;
+            const sep = document.createElement('div');
+            sep.className = `semana-group-sep semana-sep-${colorClass}`;
+            sep.textContent = label;
+            panel.appendChild(sep);
+            sortServicios(items).forEach(s => {
+                let area = s.area || '';
+                if (!area) { const u = usuarios.find(u => u.nombre === s.usuario); area = u?.area || ''; }
+                const servicioNumMap = { '7:30 AM': '1er Servicio', '11:00 AM': '2do Servicio', '1:00 PM': '3er Servicio', '7:00 PM': colorClass === 'domingo' ? '4to Servicio' : '7:00 PM' };
+                const partes = s.servicio.split(' a las ');
+                const diaStr = partes[0] || s.servicio;
+                const horaStr = partes[1] || '';
+                const numServicio = servicioNumMap[horaStr] || horaStr;
+                const li = document.createElement('li');
+                li.className = `semana-item semana-item-${colorClass}`;
+                li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+
+                const btnEliminar = puedeEliminar(s)
+                    ? `<button class="btn-eliminar-reserva-dash" data-servicio="${s.servicio}" data-usuario="${s.usuario}" style="flex-shrink:0;padding:2px 8px;font-size:0.7rem;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);color:#ff4757;border-radius:6px;cursor:pointer;">✕</button>`
+                    : '';
+
+                li.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap;">
+                        <span class="semana-nombre">👤 ${s.usuario}</span>
+                        <span class="semana-area">${area}</span>
+                        <span class="semana-servicio">📅 ${diaStr} · ${numServicio}</span>
+                    </div>
+                    ${btnEliminar}`;
+                panel.appendChild(li);
+            });
+        };
+        renderGroup(domingos,  '☀️ Domingos',   'domingo');
+        renderGroup(miercoles, '🌙 Miércoles', 'miercoles');
+    }
+    renderReservasSemana();
+
+    // Handler para eliminar reservas desde el dashboard
+    document.getElementById('servicios-semana-list')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-eliminar-reserva-dash');
+        if (!btn) return;
+        const servicio = btn.dataset.servicio;
+        const usuario  = btn.dataset.usuario;
+        confirmar('Quitar reserva', `¿Quitar la reserva de "${usuario}" para "${servicio}"?`, () => {
+            let servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            servicios = servicios.filter(s => !(s.servicio === servicio && s.usuario === usuario));
+            localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+            showNotification(`Reserva de "${usuario}" eliminada.`);
+            renderReservasSemana();
+            actualizarEstadisticas();
+        });
+    });
+
+    // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
+
+    /**
+     * Retorna true si el PDF de programación ya expiró.
+     * Un PDF expira 2 horas después del inicio del servicio al que está asociado.
+     * Si el servicio no tiene fecha próxima (ya pasó esta semana y no hay otro),
+     * el PDF se considera expirado.
+     */
+    function esPdfExpirado(p) {
+        if (!p.servicio) return false;
+
+        // Hora de inicio de cada tipo de servicio
+        const SERVICIOS_INICIO = {
+            'dom-1': { diaSemana: 0, h: 7,  m: 30 },
+            'dom-2': { diaSemana: 0, h: 11, m: 0  },
+            'dom-3': { diaSemana: 0, h: 13, m: 0  },
+            'dom-4': { diaSemana: 0, h: 19, m: 0  },
+            'mie-1': { diaSemana: 3, h: 19, m: 0  }
+        };
+
+        const ahora = new Date();
+        const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
+
+        // Evento especial: expira 2h después de su hora de inicio
+        if (p.servicio.startsWith('especial_')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const proy = proyectos.find(x => x.fecha_registro === p.servicio.replace('especial_', ''));
+            if (!proy || !proy.fecha) return false;
+            const hora = proy.hora || '00:00';
+            const fechaEvento = new Date(`${proy.fecha}T${hora}:00`);
+            return ahora.getTime() > fechaEvento.getTime() + DOS_HORAS_MS;
+        }
+
+        const cfg = SERVICIOS_INICIO[p.servicio];
+        if (!cfg) return false;
+
+        // Usar la fecha de subida del PDF para encontrar el domingo/miércoles
+        // al que pertenece — no el próximo desde hoy
+        const fechaSubida = p.fecha ? new Date(p.fecha) : ahora;
+
+        // Buscar el domingo/miércoles más cercano ANTES o EN la fecha de subida
+        // (el servicio al que fue asignado)
+        const candidato = new Date(fechaSubida);
+        // Retroceder hasta encontrar el día correcto de la semana
+        while (candidato.getDay() !== cfg.diaSemana) {
+            candidato.setDate(candidato.getDate() - 1);
+        }
+        candidato.setHours(cfg.h, cfg.m, 0, 0);
+
+        const expira = candidato.getTime() + DOS_HORAS_MS;
+
+        // Si ya pasaron 2h desde ese servicio → expirado
+        return ahora.getTime() > expira;
+    }
+
+    function renderDashProgramacion() {
+        const panel = document.getElementById('dash-programacion-panel');
+        const cont  = document.getElementById('dash-programacion-content');
+        if (!panel || !cont) return;
+
+        const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+        if (pdfs.length === 0) { panel.style.display = 'none'; return; }
+
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const getLabel = (key) => {
+            if (!key) return 'General';
+            if (key === 'dom-1') return '☀️ Domingo · 1er Servicio';
+            if (key === 'dom-2') return '☀️ Domingo · 2do Servicio';
+            if (key === 'dom-3') return '☀️ Domingo · 3er Servicio';
+            if (key === 'dom-4') return '☀️ Domingo · 4to Servicio';
+            if (key === 'mie-1') return '🌙 Miércoles · Servicio';
+            if (key.startsWith('especial_')) {
+                const proy = proyectos.find(x => x.fecha_registro === key.replace('especial_', ''));
+                return proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+            }
+            return key;
+        };
+
+        // Determinar PDFs relevantes según rol
+        let relevantes;
+        if (esAdmin) {
+            relevantes = pdfs;
+        } else {
+            const servicios    = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+            const misServicios = servicios.filter(s => s.usuario === sesion.nombre);
+            const misKeys = new Set();
+            misServicios.forEach(s => {
+                const partes = s.servicio.split(' a las ');
+                const dia = partes[0] || '', hora = partes[1] || '';
+                if (dia.startsWith('Domingo')) {
+                    if (hora === '7:30 AM')  misKeys.add('dom-1');
+                    if (hora === '11:00 AM') misKeys.add('dom-2');
+                    if (hora === '1:00 PM')  misKeys.add('dom-3');
+                    if (hora === '7:00 PM')  misKeys.add('dom-4');
+                }
+                if (dia.startsWith('Mi\u00e9rcoles')) misKeys.add('mie-1');
+            });
+            relevantes = pdfs.filter(p => !p.servicio || misKeys.has(p.servicio));
+        }
+
+        if (relevantes.length === 0) { panel.style.display = 'none'; return; }
+
+        // Solo mostrar PDFs activos — los expirados no aparecen en el dashboard
+        const activos = relevantes.filter(p => !esPdfExpirado(p));
+
+        if (activos.length === 0) { panel.style.display = 'none'; return; }
+
+        panel.style.display = '';
+        cont.innerHTML = '';
+
+        const renderPdfCard = (p) => {
+            const idx = pdfs.indexOf(p);
+            const servicioLabel = {
+                'dom-1': '1er Serv.', 'dom-2': '2do Serv.', 'dom-3': '3er Serv.', 'dom-4': '4to Serv.',
+                'mie-1': 'Miérc.'
+            };
+            const badge = p.servicio && servicioLabel[p.servicio]
+                ? `<span style="font-size:0.65rem;background:rgba(79,172,254,0.15);border:1px solid rgba(79,172,254,0.3);color:var(--primary-color);border-radius:20px;padding:1px 6px;white-space:nowrap;flex-shrink:0;">${servicioLabel[p.servicio]}</span>`
+                : p.servicio?.startsWith('especial_') ? `<span style="font-size:0.65rem;background:rgba(255,165,0,0.15);border:1px solid rgba(255,165,0,0.3);color:#ffa500;border-radius:20px;padding:1px 6px;white-space:nowrap;flex-shrink:0;">Especial</span>` : '';
+            const row = document.createElement('div');
+            row.className = 'btn-abrir-doc-dash';
+            row.dataset.idx = idx;
+            row.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;transition:background 0.2s;';
+            row.onmouseenter = () => row.style.background = 'rgba(255,255,255,0.05)';
+            row.onmouseleave = () => row.style.background = 'transparent';
+            row.innerHTML = `
+                <span style="font-size:0.9rem;flex-shrink:0;">📄</span>
+                ${badge}
+                <span style="font-size:0.82rem;font-weight:500;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${p.titulo}</span>
+                <span style="font-size:0.7rem;color:var(--secondary-color);white-space:nowrap;flex-shrink:0;">Ver →</span>`;
+            return row;
+        };
+
+        // Todos los activos en un grid compacto de 2 columnas, sin separadores
+        if (activos.length > 0) {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px;';
+            activos.forEach(p => grid.appendChild(renderPdfCard(p)));
+            cont.appendChild(grid);
+        }
+
+        // Click handler para abrir modal
+        cont.querySelectorAll('.btn-abrir-doc-dash').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const p = pdfs[parseInt(btn.dataset.idx)];
+                if (p) abrirDocPreview(p);
+            });
+        });
+    }
+    renderDashProgramacion();
+
+    // ─── DASHBOARD: PROYECTOS Y TAREAS POR ROL ───────────────
+    function renderDashboardProyectosYTareas() {
+        const listaProy  = document.getElementById('dash-proyectos-list');
+        const titProy    = document.getElementById('dash-proyectos-titulo');
+        if (!listaProy) return;
+        const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const areaUsuario = (sesion.area || '').toLowerCase();
+
+        let proyFiltrados;
+        if (esAdmin) {
+            proyFiltrados = proyectos.filter(p => esProyectoActivo(p));
+            if (titProy) titProy.textContent = 'Próximos Eventos';
+        } else {
+            proyFiltrados = proyectos.filter(p => {
+                if (!esProyectoActivo(p)) return false;
+                if (p.areasData) return p.areasData.some(a => a.area.toLowerCase() === areaUsuario);
+                if (p.areas)     return p.areas.toLowerCase().includes(areaUsuario);
+                return false;
+            });
+            if (titProy) titProy.textContent = 'Mis Eventos';
+        }
+
+        listaProy.innerHTML = '';
+        if (proyFiltrados.length === 0) {
+            if (!esAdmin) {
+                // Mostrar próximo servicio reservado
+                const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+                const userName  = sesion.nombre;
+                const misServicios = servicios.filter(s => s.usuario === userName);
+                const proximoServicio = misServicios.length > 0
+                    ? `<div class="proximo-servicio">\ud83d\udcc5 Pr\u00f3ximo servicio: <strong>${misServicios[0].servicio}</strong></div>`
+                    : '';
+                listaProy.innerHTML = `<li><div class="dash-bienvenida">
+                    <div class="dash-bienvenida-icon">\ud83d\udc4b</div>
+                    <p>Hola <strong>${sesion.nombre.split(' ')[0]}</strong>, a\u00fan no tienes proyectos asignados.<br>Cuando el Admin te asigne a un evento aparecer\u00e1 aqu\u00ed.</p>
+                    ${proximoServicio}
+                </div></li>`;
+            } else {
+                listaProy.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin eventos especiales activos.</span></li>';
+            }
+        } else {
+            [...proyFiltrados].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).forEach(p => {
+                const estado    = calcularEstadoProyecto(p);
+                const regresiva = cuentaRegresiva(p);
+                const fechaFmt  = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' }) : '\u2014';
+                const cls = estado === 'Planificado' ? 'estado-planificado' : estado === 'En curso' ? 'estado-en-curso' : 'estado-completado';
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="activity-note-line">
+                    <span class="note-detail">\ud83d\udcc5 ${p.nombre}</span>
+                    <span class="note-user">${fechaFmt}${p.hora ? ' ' + p.hora : ''}</span>
+                    <span class="note-time"><span class="estado-badge ${cls}" style="padding:1px 7px;font-size:0.7rem;">${estado}</span></span>
+                </span>${regresiva ? `<div style="font-size:0.75rem;color:var(--secondary-color);padding:2px 4px;">${regresiva}</div>` : ''}
+                ${!esAdmin && estado !== 'Completado' ? (() => {
+                    const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                    const key = `${p.fecha_registro}_${sesion.correo}`;
+                    const resp = asistencias[key];
+                    if (resp === 'confirma')  return `<div style="margin-top:4px;"><span class="asistencia-btn asistencia-confirmado">\u2713 Asistencia confirmada</span></div>`;
+                    if (resp === 'no-puedo')  return `<div style="margin-top:4px;"><span class="asistencia-btn asistencia-rechazado">\u2715 No puedo ir</span></div>`;
+                    return `<div style="margin-top:4px;display:flex;gap:6px;">
+                        <button class="asistencia-btn asistencia-confirmar btn-asistencia" data-key="${key}" data-resp="confirma">\u2713 Confirmar asistencia</button>
+                        <button class="asistencia-btn asistencia-no-puedo btn-asistencia" data-key="${key}" data-resp="no-puedo">\u2715 No puedo ir</button>
+                    </div>`;
+                })() : ''}`;
+                listaProy.appendChild(li);
+            });
+        }
+
+        // Handler asistencia proyectos
+        listaProy.querySelectorAll('.btn-asistencia').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+                asistencias[btn.dataset.key] = btn.dataset.resp;
+                localStorage.setItem('asistencias_proyectos', JSON.stringify(asistencias));
+                const msg = btn.dataset.resp === 'confirma' ? '\u2713 Asistencia confirmada' : '\u2715 No puedo ir registrado';
+                showNotification(msg);
+                renderDashboardProyectosYTareas();
+            });
+        });
+    }
+    renderDashboardProyectosYTareas();
+
+    // Ocultar panel de proyectos para Siervos
+    if (sesion.rol === 'Siervo') {
+        document.getElementById('dash-proyectos-panel')?.style && (document.getElementById('dash-proyectos-panel').style.display = 'none');
+    }
+
+    // ─── COMENTARIOS ─────────────────────────────────────────
+    let comentariosKey = null;
+
+    function abrirComentarios(key, titulo) {
+        comentariosKey = key;
+        document.getElementById('comentarios-modal-titulo').textContent = `\ud83d\udcac ${titulo}`;
+        renderComentarios();
+        document.getElementById('comentarios-modal').classList.remove('hidden');
+        document.getElementById('comentario-input').value = '';
+        document.getElementById('comentario-input').focus();
+    }
+
+    function renderComentarios() {
+        const lista = document.getElementById('comentarios-lista');
+        if (!lista || !comentariosKey) return;
+        const todos = JSON.parse(localStorage.getItem('comentarios') || '{}');
+        const items = todos[comentariosKey] || [];
+        lista.innerHTML = '';
+        if (items.length === 0) {
+            lista.innerHTML = '<li style="color:var(--text-muted);font-size:0.85rem;padding:8px 4px;">Sin comentarios a\u00fan.</li>';
+            return;
+        }
+        items.forEach(c => {
+            const li = document.createElement('li');
+            li.innerHTML = `<div class="comentario-item">
+                <span class="comentario-autor">${c.autor}</span>
+                <span>${c.texto}</span>
+                <span class="comentario-hora">${new Date(c.fecha).toLocaleString('es', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+            </div>`;
+            lista.appendChild(li);
+        });
+        lista.scrollTop = lista.scrollHeight;
+    }
+
+    document.getElementById('btn-enviar-comentario')?.addEventListener('click', () => {
+        const input = document.getElementById('comentario-input');
+        const texto = input.value.trim();
+        if (!texto || !comentariosKey) return;
+        const todos = JSON.parse(localStorage.getItem('comentarios') || '{}');
+        if (!todos[comentariosKey]) todos[comentariosKey] = [];
+        todos[comentariosKey].push({ autor: sesion.nombre, texto, fecha: new Date().toISOString() });
+        localStorage.setItem('comentarios', JSON.stringify(todos));
+        input.value = '';
+        renderComentarios();
+    });
+
+    document.getElementById('comentario-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('btn-enviar-comentario').click();
+    });
+
+    // Delegación para botones de comentarios en proyectos
+    document.getElementById('proyectos-lista')?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-comentarios-proy')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const p = proyectos.find(x => x.fecha_registro === e.target.dataset.key);
+            if (p) abrirComentarios(`proy_${p.fecha_registro}`, p.nombre);
+        }
+    }, true); // capture para no interferir con el listener existente
+
+    // ─── FILTRO PROYECTOS ─────────────────────────────────────
+    document.getElementById('filtro-estado-proy')?.addEventListener('change', () => renderProyectos());
+
+    // ─── CALENDARIO VISUAL DE PROYECTOS ──────────────────────
+    let calendarioVisible = false;
+    function renderCalendario() {
+        const cont = document.getElementById('proyectos-calendario');
+        if (!cont) return;
+        const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const hoy = new Date();
+        const anio = hoy.getFullYear();
+        const mes  = hoy.getMonth();
+        const primerDia = new Date(anio, mes, 1).getDay();
+        const diasMes   = new Date(anio, mes + 1, 0).getDate();
+        const mesNombre = hoy.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+
+        // Mapear proyectos por día
+        const eventosPorDia = {};
+        proyectos.forEach(p => {
+            if (!p.fecha) return;
+            const d = new Date(p.fecha + 'T00:00:00');
+            if (d.getFullYear() === anio && d.getMonth() === mes) {
+                const dia = d.getDate();
+                if (!eventosPorDia[dia]) eventosPorDia[dia] = [];
+                eventosPorDia[dia].push(p);
+            }
+        });
+
+        let html = `<div class="cal-header"><strong>${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)}</strong></div>
+        <div class="cal-grid">
+            <div class="cal-dia-label">Dom</div><div class="cal-dia-label">Lun</div><div class="cal-dia-label">Mar</div>
+            <div class="cal-dia-label">Mié</div><div class="cal-dia-label">Jue</div><div class="cal-dia-label">Vie</div><div class="cal-dia-label">Sáb</div>`;
+        for (let i = 0; i < primerDia; i++) html += '<div class="cal-celda vacia"></div>';
+        for (let d = 1; d <= diasMes; d++) {
+            const esHoy = d === hoy.getDate();
+            const eventos = eventosPorDia[d] || [];
+            const puntosHtml = eventos.map(p => {
+                const estado = calcularEstadoProyecto(p);
+                const color  = estado === 'Completado' ? '#2ed573' : estado === 'En curso' ? '#ffa500' : '#4facfe';
+                return `<span class="cal-punto" style="background:${color};" title="${p.nombre}"></span>`;
+            }).join('');
+            html += `<div class="cal-celda${esHoy ? ' cal-hoy' : ''}${eventos.length ? ' cal-tiene-evento' : ''}">${d}${puntosHtml}</div>`;
+        }
+        html += '</div>';
+        cont.innerHTML = html;
+    }
+
+    document.getElementById('btn-toggle-calendario')?.addEventListener('click', () => {
+        calendarioVisible = !calendarioVisible;
+        const cont = document.getElementById('proyectos-calendario');
+        if (calendarioVisible) { cont.classList.remove('hidden'); renderCalendario(); }
+        else cont.classList.add('hidden');
+    });
+
+    // ─── PERFIL DE USUARIO ────────────────────────────────────
+    function abrirModalPerfil() {
+        cargarPerfil();
+        document.getElementById('perfil-modal')?.classList.remove('hidden');
+    }
+
+    function cargarPerfil() {
+        const inp = document.getElementById('perfil-nombre');
+        const tel = document.getElementById('perfil-telefono');
+        const cor = document.getElementById('perfil-correo');
+        const dis = document.getElementById('perfil-distrito');
+        const areaSel    = document.getElementById('perfil-area');
+        const subareaSel = document.getElementById('perfil-subarea');
+        const subareaGrp = document.getElementById('perfil-subarea-group');
+
+        if (inp) inp.value = sesion.nombre;
+        if (cor) cor.value = sesion.correo;
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const u = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        if (u) {
+            if (tel) tel.value = u.telefono || '';
+            if (dis) dis.value = u.distrito || '';
+            if (areaSel) areaSel.value = u.area || '';
+            // Manejar subarea de Técnica
+            if (subareaGrp && subareaSel) {
+                subareaGrp.style.display = u.area === 'T\u00e9cnica' ? '' : 'none';
+                if (u.subarea) subareaSel.value = u.subarea;
+            }
+
+            // Cargar imagen de perfil
+            const imgEl = document.getElementById('perfil-foto-img');
+            const initialsEl = document.getElementById('perfil-foto-iniciales');
+            if (u.fotoUrl) {
+                if (imgEl) { imgEl.src = u.fotoUrl; imgEl.style.display = 'block'; }
+                if (initialsEl) initialsEl.style.display = 'none';
+            } else {
+                if (imgEl) imgEl.style.display = 'none';
+                if (initialsEl) {
+                    const initials = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                    initialsEl.textContent = initials;
+                    initialsEl.style.display = 'block';
+                }
+            }
+        }
+        renderHistorialAsistencia();
+    }
+
+    function renderHistorialAsistencia() {
+        const cont = document.getElementById('perfil-historial-content');
+        if (!cont) return;
+        const proyectos   = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+        const asistencias = JSON.parse(localStorage.getItem('asistencias_proyectos') || '{}');
+        const historial   = proyectos.map(p => {
+            const key  = `${p.fecha_registro}_${sesion.correo}`;
+            const resp = asistencias[key];
+            return { nombre: p.nombre, fecha: p.fecha, hora: p.hora, resp };
+        }).filter(p => p.resp);
+
+        if (historial.length === 0) {
+            cont.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin historial de asistencia aún.</p>';
+            return;
+        }
+        const confirmados = historial.filter(p => p.resp === 'confirma').length;
+        const noPuedo     = historial.filter(p => p.resp === 'no-puedo').length;
+        cont.innerHTML = `
+            <div style="display:flex;gap:16px;margin-bottom:12px;font-size:0.85rem;">
+                <span style="color:#2ed573;">\u2713 Confirmados: <strong>${confirmados}</strong></span>
+                <span style="color:#ff4757;">\u2715 No pude ir: <strong>${noPuedo}</strong></span>
+                <span style="color:var(--text-muted);">Total: <strong>${historial.length}</strong></span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                ${historial.map(p => {
+                    const fechaFmt = p.fecha ? new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                    const color = p.resp === 'confirma' ? '#2ed573' : '#ff4757';
+                    const icon  = p.resp === 'confirma' ? '\u2713' : '\u2715';
+                    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:0.82rem;">
+                        <span>${p.nombre}</span>
+                        <span style="color:var(--text-muted);font-size:0.75rem;">${fechaFmt}${p.hora ? ' ' + p.hora : ''}</span>
+                        <span style="color:${color};font-weight:600;">${icon}</span>
+                    </div>`;
+                }).join('')}
+            </div>`;
+    }
+
+    document.getElementById('btn-perfil-cambiar-foto')?.addEventListener('click', () => {
+        document.getElementById('perfil-foto-input')?.click();
+    });
+
+    function compressImageToBase64(file, maxWidth = 120, maxHeight = 120) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height = Math.round(height * maxWidth / width);
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width = Math.round(width * maxHeight / height);
+                            height = maxHeight;
+                        }
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.onerror = reject;
+                img.src = e.target.result;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    document.getElementById('perfil-foto-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        showNotification('Actualizando foto de perfil...', 'success');
+
+        try {
+            // Generar Base64 comprimido directamente (120x120px, 70% calidad)
+            const downloadUrl = await compressImageToBase64(file);
+            
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (idx !== -1) {
+                usuarios[idx].fotoUrl = downloadUrl;
+                
+                // Esperar a que se guarde en Firebase Realtime Database
+                await DB.setUsuarios(usuarios);
+                
+                // Guardar localmente
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+                
+                const imgEl = document.getElementById('perfil-foto-img');
+                const initialsEl = document.getElementById('perfil-foto-iniciales');
+                if (imgEl) { imgEl.src = downloadUrl; imgEl.style.display = 'block'; }
+                if (initialsEl) initialsEl.style.display = 'none';
+
+                if (avatarEl) {
+                    avatarEl.innerHTML = `<img src="${downloadUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                    avatarEl.style.fontSize = '';
+                    avatarEl.style.fontWeight = '';
+                }
+
+                const bienvenidaAvatar = document.getElementById('btn-abrir-perfil');
+                if (bienvenidaAvatar) {
+                    bienvenidaAvatar.innerHTML = `<img src="${downloadUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                }
+
+                showNotification('¡Foto de perfil actualizada!');
+                if (window._cargarTablaUsuarios) window._cargarTablaUsuarios();
+            }
+        } catch (err) {
+            console.error("Error al subir foto:", err);
+            showNotification('Error al subir la foto de perfil.', 'error');
+        }
+    });
+
+    document.getElementById('perfil-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nuevoNombre = document.getElementById('perfil-nombre').value.trim();
+        const nuevoTel    = document.getElementById('perfil-telefono').value.trim();
+        const nuevoDis    = document.getElementById('perfil-distrito').value.trim();
+        const nuevaArea   = document.getElementById('perfil-area').value;
+        const nuevaClave  = document.getElementById('perfil-password').value;
+        const btnSubmit   = e.target.querySelector('button[type="submit"]');
+
+        if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Guardando...'; }
+
+        try {
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const idx = usuarios.findIndex(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (idx !== -1) {
+                usuarios[idx].nombre   = nuevoNombre;
+                usuarios[idx].telefono = nuevoTel;
+                usuarios[idx].distrito = nuevoDis;
+                usuarios[idx].area     = nuevaArea;
+                usuarios[idx].subarea  = nuevaArea === 'T\u00e9cnica' ? (document.getElementById('perfil-subarea')?.value || 'Switcher') : '';
+                if (nuevaClave) {
+                    const hash = await hashPassword(nuevaClave);
+                    usuarios[idx].clave = hash;
+                    delete usuarios[idx].clave_temporal;
+                }
+                await DB.setUsuarios(usuarios);
+                localStorage.setItem('usuarios_registrados', JSON.stringify(usuarios));
+            }
+
+            if (nuevaClave) {
+                const user = AUTH.getAuth().currentUser;
+                if (user) {
+                    await AUTH.cambiarClave(user, nuevaClave);
+                }
+            }
+
+            sesion.nombre = nuevoNombre;
+            sesion.area   = nuevaArea;
+            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+
+            if (avatarEl) {
+                const usuariosAct = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const curUser = usuariosAct.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+                if (curUser && curUser.fotoUrl) {
+                    avatarEl.innerHTML = `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                } else {
+                    const iniciales = nuevoNombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                    avatarEl.textContent = iniciales;
+                }
+            }
+
+            document.getElementById('perfil-password').value = '';
+            document.getElementById('perfil-modal')?.classList.add('hidden');
+            showNotification('Perfil actualizado correctamente.');
+            
+            // Recargar la visualización de la bienvenida
+            const bienvenidaContent = document.getElementById('bienvenida-content');
+            if (bienvenidaContent) {
+                const hora = new Date().getHours();
+                const momento = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+                const roleMap = { 'Admin': 'Administrador', 'SuperLider': 'Super Líder', 'Lider': 'Líder', 'Siervo': 'Siervo' };
+                const rolLabel = roleMap[sesion.rol] || 'Siervo';
+                const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
+                const rolColor = roleColors[sesion.rol] || '#2ed573';
+                const accesosPorRol = {
+                    'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+                    'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
+                    'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
+                    'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
+                };
+                const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
+                const curUser = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+                const imgTag = (curUser && curUser.fotoUrl)
+                    ? `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
+                    : sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
+
+                bienvenidaContent.innerHTML = `
+                    <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
+                        <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
+                            ${imgTag}
+                        </div>
+                        <div>
+                            <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
+                                ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                document.getElementById('btn-abrir-perfil')?.addEventListener('click', () => abrirModalPerfil());
+            }
+            if (window._cargarTablaUsuarios) window._cargarTablaUsuarios();
+        } catch (error) {
+            console.error("Error al actualizar perfil:", error);
+            showNotification('Error al actualizar el perfil o contraseña.', 'error');
+        } finally {
+            if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = 'Guardar Perfil'; }
+        }
+    });
+
+    // ─── RECURSOS ────────────────────────────────────────────
+
+    function getFechasServicio(servicioKey) {
+        if (!servicioKey) return '';
+
+        // Evento especial vinculado a un proyecto
+        if (servicioKey.startsWith('especial_')) {
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const proy = proyectos.find(x => x.fecha_registro === servicioKey.replace('especial_', ''));
+            if (!proy || !proy.fecha) return '';
+            const fechaFmt = new Date(proy.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' });
+            return `${fechaFmt}${proy.hora ? ' · ' + proy.hora : ''}`;
+        }
+
+        const hoy = new Date();
+        const horaMap = { 'dom-1': '7:30 AM', 'dom-2': '11:00 AM', 'dom-3': '1:00 PM', 'dom-4': '7:00 PM', 'mie-1': '7:00 PM' };
+        const diaBuscado = servicioKey.startsWith('dom') ? 0 : servicioKey === 'mie-1' ? 3 : -1;
+        if (diaBuscado === -1) return '';
+
+        // Buscar hasta 14 días adelante para encontrar siempre el próximo día
+        for (let i = 0; i <= 14; i++) {
+            const d = new Date(hoy);
+            d.setDate(hoy.getDate() + i);
+            if (d.getDay() === diaBuscado) {
+                return `${d.toLocaleDateString('es', {day:'numeric', month:'short'})} · ${horaMap[servicioKey]}`;
+            }
+        }
+        return '';
+    }
+
+    function poblarSelectorServicios() {
+        const sels = [
+            document.getElementById('pdf-servicio'),
+            document.getElementById('er-servicio')
+        ].filter(Boolean);
+
+        sels.forEach(sel => {
+            sel.innerHTML = '<option value="">General</option>';
+
+            // Miércoles próximo
+            const fechaMie = getFechasServicio('mie-1');
+            const optMie = document.createElement('option');
+            optMie.value = 'mie-1';
+            optMie.textContent = `🌙 Miércoles · Servicio${fechaMie ? ' — ' + fechaMie : ''}`;
+            sel.appendChild(optMie);
+
+            // Domingos próximos — 4 servicios
+            const serviciosDom = [
+                { key: 'dom-1', label: '☀️ Domingo · 1er Servicio' },
+                { key: 'dom-2', label: '☀️ Domingo · 2do Servicio' },
+                { key: 'dom-3', label: '☀️ Domingo · 3er Servicio' },
+                { key: 'dom-4', label: '☀️ Domingo · 4to Servicio' },
+            ];
+            serviciosDom.forEach(({ key, label }) => {
+                const fecha = getFechasServicio(key);
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = fecha ? `${label} — ${fecha}` : label;
+                sel.appendChild(opt);
+            });
+
+            // Proyectos especiales activos (no completados)
+            const proyectos = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+            const especiales = proyectos.filter(p => esProyectoActivo(p) && p.fecha);
+            if (especiales.length > 0) {
+                const sep = document.createElement('option');
+                sep.disabled = true;
+                sep.textContent = '── Eventos Especiales ──';
+                sel.appendChild(sep);
+                especiales.forEach(p => {
+                    const fechaFmt = new Date(p.fecha + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' });
+                    const opt = document.createElement('option');
+                    opt.value = `especial_${p.fecha_registro}`;
+                    opt.textContent = `🎯 ${p.nombre} — ${fechaFmt}${p.hora ? ' · ' + p.hora : ''}`;
+                    sel.appendChild(opt);
+                });
+            }
+        });
+    }
+
+    function abrirDocPreview(p) {
+        const modal   = document.getElementById('doc-preview-modal');
+        const titulo  = document.getElementById('doc-preview-titulo');
+        const content = document.getElementById('doc-preview-content');
+        if (!modal) return;
+        titulo.textContent = p.titulo;
+        content.innerHTML  = '';
+        const ext = (p.nombreArchivo || '').split('.').pop().toLowerCase();
+        if (['pdf'].includes(ext) && p.url.startsWith('data:')) {
+            content.innerHTML = `<iframe src="${p.url}" style="width:100%;height:60vh;border:none;border-radius:8px;"></iframe>`;
+        } else if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
+            content.innerHTML = `<img src="${p.url}" style="max-width:100%;border-radius:8px;">`;
+        } else {
+            content.innerHTML = `<div style="text-align:center;padding:30px;">
+                <div style="font-size:3rem;margin-bottom:16px;">\ud83d\udcc4</div>
+                <p style="color:var(--text-muted);margin-bottom:20px;">Vista previa no disponible para este formato.</p>
+                <a href="${p.url}" download="${p.nombreArchivo || p.titulo}" class="btn-primary" style="display:inline-block;padding:10px 24px;text-decoration:none;border-radius:10px;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));color:white;font-weight:600;">\ud83d\udce5 Descargar</a>
+            </div>`;
+        }
+        modal.classList.remove('hidden');
+    }
+
+    function puedeSubirRecursos() {
+        if (esAdmin || esLider) return true;
+        const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        return Object.values(lideres).includes(sesion.nombre);
+    }
+
+    function renderRecursos() {
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        const pdfs   = JSON.parse(localStorage.getItem('recursos_pdfs')   || '[]');
+        const puedeSubir = puedeSubirRecursos();
+
+        const listaVideos = document.getElementById('recursos-videos-lista');
+        const listaPdfs   = document.getElementById('recursos-pdfs-lista');
+        const countVideos = document.getElementById('recursos-videos-count');
+        const countPdfs   = document.getElementById('recursos-pdfs-count');
+
+        if (countVideos) countVideos.textContent = videos.length > 0 ? `${videos.length} video(s)` : '';
+        if (countPdfs)   countPdfs.textContent   = pdfs.length   > 0 ? `${pdfs.length} recurso(s)` : '';
+
+        // Mostrar formularios solo a Admin y Líderes
+        document.getElementById('recursos-add-video-panel').style.display = puedeSubir ? '' : 'none';
+        document.getElementById('recursos-add-pdf-panel').style.display   = puedeSubir ? '' : 'none';
+
+        // Programación siempre primero, Videos siempre después
+        const contenedor = document.getElementById('recursos-view');
+        const secVideos  = document.getElementById('recursos-videos-section');
+        const secPdfs    = document.getElementById('recursos-pdfs-section');
+        if (contenedor && secVideos && secPdfs) {
+            if (secVideos.previousElementSibling !== secPdfs) {
+                contenedor.insertBefore(secPdfs, secVideos);
+            }
+        }
+
+        // Lista de videos — solo cards, sin tabla
+        if (listaVideos) {
+            listaVideos.innerHTML = '';
+            if (videos.length === 0) {
+                listaVideos.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin videos agregados aún.</p>';
+            } else {
+                videos.forEach((v, i) => {
+                    const card = document.createElement('div');
+                    card.className = 'recurso-card';
+                    const ytMatch = v.url.match(/(?:v=|youtu\.be\/)([^&?/]+)/);
+                    const thumb = ytMatch
+                        ? `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="recurso-thumb" alt="">`
+                        : '<div class="recurso-thumb-placeholder">🎬</div>';
+                    card.innerHTML = `
+                        <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link" style="flex:1;">
+                            ${thumb}
+                            <div class="recurso-info">
+                                <span class="recurso-titulo">${v.titulo}</span>
+                                <span class="recurso-url">${v.url.length > 50 ? v.url.substring(0,50)+'...' : v.url}</span>
+                            </div>
+                        </a>
+                        ${puedeSubir ? `
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                            <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                            <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                        </div>` : ''}`;
+                    listaVideos.appendChild(card);
+                });
+            }
+        }
+
+        // Agrupar PDFs por servicio — solo cards, sin tabla
+        if (listaPdfs) {
+            listaPdfs.innerHTML = '';
+            if (pdfs.length === 0) {
+                listaPdfs.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Sin cursos o PDFs agregados aún.</p>';
+            } else {
+                const renderPdfCard = (p, realIdx) => {
+                    const card = document.createElement('div');
+                    card.className = 'recurso-card';
+                    card.style.cursor = 'pointer';
+                    const subtitulo = p.nombreArchivo || (p.url.length > 50 ? p.url.substring(0,50)+'...' : p.url);
+                    card.innerHTML = `
+                        <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
+                            <div class="recurso-thumb-placeholder">📄</div>
+                            <div class="recurso-info">
+                                <span class="recurso-titulo">${p.titulo}</span>
+                                <span class="recurso-url">${subtitulo}</span>
+                            </div>
+                        </div>
+                        ${puedeSubir ? `
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                            <button class="btn-secondary btn-edit-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                            <button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                        </div>` : ''}`;
+                    return card;
+                };
+
+                SERVICIOS_SEMANA.forEach(srv => {
+                    const srvPdfs = pdfs.filter(p => p.servicio === srv.value);
+                    if (srvPdfs.length === 0) return;
+                    const fechaReal = getFechasServicio(srv.value);
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = `${srv.label}${fechaReal ? ' — ' + fechaReal : ''}`;
+                    listaPdfs.appendChild(sep);
+                    srvPdfs.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
+                });
+
+                // Eventos especiales
+                const gruposEspeciales = {};
+                pdfs.filter(p => p.servicio && p.servicio.startsWith('especial_')).forEach(p => {
+                    if (!gruposEspeciales[p.servicio]) gruposEspeciales[p.servicio] = [];
+                    gruposEspeciales[p.servicio].push(p);
+                });
+                Object.entries(gruposEspeciales).forEach(([key, items]) => {
+                    const proyectosAll = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                    const proy = proyectosAll.find(x => x.fecha_registro === key.replace('especial_', ''));
+                    const label = proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+                    const fechaReal = getFechasServicio(key);
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = `${label}${fechaReal ? ' — ' + fechaReal : ''}`;
+                    listaPdfs.appendChild(sep);
+                    items.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
+                });
+
+                const sinServicio = pdfs.filter(p => !p.servicio);
+                if (sinServicio.length > 0) {
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.textContent = 'General';
+                    listaPdfs.appendChild(sep);
+                    sinServicio.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
+                }
+            }
+        }
+
+        // ── Historial de PDFs expirados ──
+        const historialSection = document.getElementById('recursos-pdfs-historial-section');
+        const historialLista   = document.getElementById('recursos-pdfs-historial-lista');
+        const historialCount   = document.getElementById('recursos-pdfs-historial-count');
+        if (historialSection && historialLista) {
+            const pdfsExpirados = pdfs.filter(p => p.servicio && esPdfExpirado(p));
+            if (pdfsExpirados.length === 0) {
+                historialSection.style.display = 'none';
+            } else {
+                historialSection.style.display = '';
+                if (historialCount) historialCount.textContent = `${pdfsExpirados.length} archivo(s)`;
+                historialLista.innerHTML = '';
+
+                // Agrupar por servicio
+                const grupos = {};
+                pdfsExpirados.forEach(p => {
+                    const key = p.servicio || 'general';
+                    if (!grupos[key]) grupos[key] = [];
+                    grupos[key].push(p);
+                });
+
+                const getHistorialLabel = (key) => {
+                    if (key === 'dom-1') return '☀️ Domingo · 1er Servicio';
+                    if (key === 'dom-2') return '☀️ Domingo · 2do Servicio';
+                    if (key === 'dom-3') return '☀️ Domingo · 3er Servicio';
+                    if (key === 'dom-4') return '☀️ Domingo · 4to Servicio';
+                    if (key === 'mie-1') return '🌙 Miércoles · Servicio';
+                    if (key.startsWith('especial_')) {
+                        const proyAll = JSON.parse(localStorage.getItem('proyectos_creados') || '[]');
+                        const proy = proyAll.find(x => x.fecha_registro === key.replace('especial_', ''));
+                        return proy ? `🎯 ${proy.nombre}` : '🎯 Evento Especial';
+                    }
+                    return key;
+                };
+
+                Object.entries(grupos).forEach(([key, items]) => {
+                    const sep = document.createElement('div');
+                    sep.className = 'recurso-servicio-sep';
+                    sep.style.opacity = '0.5';
+                    sep.style.fontSize = '0.75rem';
+                    // Obtener la fecha real del servicio expirado
+                    const fechaSubida = items[0].fecha ? new Date(items[0].fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '';
+                    sep.textContent = `${getHistorialLabel(key)}${fechaSubida ? ' — ' + fechaSubida : ''}`;
+                    historialLista.appendChild(sep);
+
+                    items.forEach(p => {
+                        const realIdx = pdfs.indexOf(p);
+                        const row = document.createElement('div');
+                        // Fila compacta de una sola línea
+                        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;opacity:0.55;transition:opacity 0.2s;cursor:pointer;';
+                        row.onmouseenter = () => row.style.opacity = '0.85';
+                        row.onmouseleave = () => row.style.opacity = '0.55';
+                        row.innerHTML = `
+                            <span style="font-size:0.82rem;flex-shrink:0;color:var(--text-muted);">📄</span>
+                            <span class="btn-abrir-doc" data-idx="${realIdx}" style="flex:1;font-size:0.82rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.titulo}</span>
+                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:2px 7px;font-size:0.68rem;flex-shrink:0;opacity:0.7;">🗑️</button>` : ''}`;
+                        historialLista.appendChild(row);
+                    });
+                });
+            }
+        }
+    } // fin renderRecursos
+
+    // ── Delegación de eventos recursos (una sola vez) ──
+    document.getElementById('recursos-videos-lista')?.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-edit-recurso-video')) {
+                const idx    = parseInt(e.target.dataset.idx);
+                const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+                const v      = videos[idx];
+                if (!v) return;
+                document.getElementById('ev-titulo').value = v.titulo;
+                document.getElementById('ev-url').value    = v.url;
+                document.getElementById('edit-video-modal')._videoIdx = idx;
+                document.getElementById('edit-video-modal').classList.remove('hidden');
+            }
+        });
+
+        // Handler eliminar — delegación
+        document.getElementById('recursos-videos-lista')?.addEventListener('click', (e) => {
+            if (e.target.classList.contains('recurso-del') && e.target.dataset.tipo === 'videos') {
+                const idx   = parseInt(e.target.dataset.idx);
+                const items = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_videos', JSON.stringify(items));
+                renderRecursos();
+            }
+        });
+
+        document.getElementById('recursos-pdfs-lista')?.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-idx]');
+            const idx = target ? parseInt(target.dataset.idx) : -1;
+
+            // Abrir previsualización
+            if (e.target.classList.contains('btn-abrir-doc') || e.target.closest('.btn-abrir-doc')) {
+                const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                const p = pdfs[idx];
+                if (p) abrirDocPreview(p);
+                return;
+            }
+            if (e.target.classList.contains('btn-del-recurso-pdf') || e.target.closest('.btn-del-recurso-pdf')) {
+                const items = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_pdfs', JSON.stringify(items));
+                renderRecursos();
+                return;
+            }
+            if (e.target.classList.contains('recurso-del') && e.target.dataset.tipo === 'pdfs') {
+                const items = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                items.splice(idx, 1);
+                localStorage.setItem('recursos_pdfs', JSON.stringify(items));
+                renderRecursos();
+                return;
+            }
+            if (e.target.classList.contains('btn-edit-recurso-pdf')) {
+                const pdfs = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+                const p    = pdfs[idx];
+                if (!p) return;
+                poblarSelectorServicios();
+                document.getElementById('er-titulo').value   = p.titulo;
+                document.getElementById('er-servicio').value = p.servicio || '';
+                document.getElementById('er-file').value     = '';
+                const archivoActual = document.getElementById('er-archivo-actual');
+                if (archivoActual) archivoActual.textContent = p.nombreArchivo ? `Archivo actual: ${p.nombreArchivo}` : '';
+                document.getElementById('edit-recurso-modal')._recursoIdx = idx;
+                document.getElementById('edit-recurso-modal').classList.remove('hidden');
+            }
+        });
+
+    document.getElementById('edit-video-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const idx    = document.getElementById('edit-video-modal')._videoIdx;
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        if (!videos[idx]) return;
+        videos[idx].titulo = document.getElementById('ev-titulo').value.trim();
+        videos[idx].url    = document.getElementById('ev-url').value.trim();
+        localStorage.setItem('recursos_videos', JSON.stringify(videos));
+        document.getElementById('edit-video-modal').classList.add('hidden');
+        renderRecursos();
+        showNotification('Video actualizado.');
+    });
+
+    document.getElementById('edit-recurso-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const idx     = document.getElementById('edit-recurso-modal')._recursoIdx;
+        const pdfs    = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+        if (!pdfs[idx]) return;
+        const titulo   = document.getElementById('er-titulo').value.trim();
+        const servicio = document.getElementById('er-servicio').value;
+        const file     = document.getElementById('er-file')?.files[0];
+
+        const guardar = (nuevoUrl, nuevoNombre) => {
+            pdfs[idx].titulo   = titulo;
+            pdfs[idx].servicio = servicio;
+            if (nuevoUrl)    pdfs[idx].url           = nuevoUrl;
+            if (nuevoNombre) pdfs[idx].nombreArchivo = nuevoNombre;
+            localStorage.setItem('recursos_pdfs', JSON.stringify(pdfs));
+            document.getElementById('edit-recurso-modal').classList.add('hidden');
+            renderRecursos();
+            showNotification('Recurso actualizado.');
+        };
+
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => guardar(ev.target.result, file.name);
+            reader.readAsDataURL(file);
+        } else {
+            guardar(null, null);
+        }
+    });
+
+    document.getElementById('form-add-video')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const titulo = document.getElementById('video-titulo').value.trim();
+        const url    = document.getElementById('video-url').value.trim();
+        const videos = JSON.parse(localStorage.getItem('recursos_videos') || '[]');
+        videos.push({ titulo, url, fecha: new Date().toISOString() });
+        localStorage.setItem('recursos_videos', JSON.stringify(videos));
+        e.target.reset();
+        renderRecursos();
+        showNotification('Video agregado.');
+    });
+
+    document.getElementById('form-add-pdf')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const titulo    = document.getElementById('pdf-titulo').value.trim();
+        const fileInput = document.getElementById('pdf-file');
+        const file      = fileInput?.files[0];
+
+        if (!file) {
+            showNotification('Selecciona un archivo para subir.', 'error');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const pdfs     = JSON.parse(localStorage.getItem('recursos_pdfs') || '[]');
+            const servicio = document.getElementById('pdf-servicio')?.value || '';
+            pdfs.push({ titulo, url: ev.target.result, esLocal: true, nombreArchivo: file.name, servicio, fecha: new Date().toISOString() });
+            localStorage.setItem('recursos_pdfs', JSON.stringify(pdfs));
+            e.target.reset();
+            renderRecursos();
+            renderDashProgramacion();
+            showNotification('Archivo subido correctamente.');
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Cargar recursos al entrar a la vista y al inicio
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'recursos-view') {
+            link.addEventListener('click', () => { setTimeout(renderRecursos, 50); poblarSelectorServicios(); });
+        }
+        // Regenerar agenda al entrar para tener reservas actualizadas
+        if (link.getAttribute('data-target') === 'agenda-view') {
+            link.addEventListener('click', () => setTimeout(generateAgendaMonth, 50));
+        }
+    });
+    renderRecursos(); // Cargar al inicio también
+    poblarSelectorServicios(); // Poblar selector con fechas reales
+
+    // ─── LIDERES DE AREA (vista Usuarios, solo Admin/SuperLider) ─
+    const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Técnica','Streaming','Luces','Diseño','Edición','Protocolos'];
+
+    function cargarLideres() {
+        const panel = document.getElementById('lideres-container');
+        if (!panel) return;
+        if (!esAdmin) {
+            document.getElementById('ajustes-lideres-panel')?.style && (document.getElementById('ajustes-lideres-panel').style.display = 'none');
+            return;
+        }
+        const lideres  = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        panel.innerHTML = '';
+        AREAS.forEach(area => {
+            const row = document.createElement('div');
+            row.className = 'area-row';
+            const optsHtml = `<option value="">Sin líder</option>` +
+                usuarios.filter(u => u.rol !== 'Admin').map(u =>
+                    `<option value="${u.nombre}" ${lideres[area] === u.nombre ? 'selected' : ''}>${u.nombre} (${u.area || '—'})</option>`
+                ).join('');
+            row.innerHTML = `
+                <span class="area-nombre">${area}</span>
+                <select class="filter-select lider-select" data-area="${area}" style="flex:1;max-width:220px;">${optsHtml}</select>`;
+            panel.appendChild(row);
+        });
+    }
+    cargarLideres();
+
+    document.getElementById('btn-guardar-lideres')?.addEventListener('click', () => {
+        const lideres = {};
+        document.querySelectorAll('.lider-select').forEach(sel => {
+            if (sel.value) lideres[sel.dataset.area] = sel.value;
+        });
+        localStorage.setItem('lideres_area', JSON.stringify(lideres));
+        showNotification('Líderes de área guardados.');
+    });
+
+    // Recargar líderes al entrar a la vista de usuarios
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'usuarios-view') {
+            link.addEventListener('click', () => setTimeout(cargarLideres, 50));
+        }
+    });
+
+    // ─── AJUSTES: MODO CLARO/OSCURO ──────────────────────────
+    const toggleTheme = document.getElementById('toggle-theme');
+    const savedTheme  = localStorage.getItem('tema') || 'dark';
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+        if (toggleTheme) toggleTheme.textContent = '\ud83c\udf19 Modo Oscuro';
+    }
+    toggleTheme?.addEventListener('click', () => {
+        document.body.classList.toggle('light-mode');
+        const isLight = document.body.classList.contains('light-mode');
+        localStorage.setItem('tema', isLight ? 'light' : 'dark');
+        toggleTheme.textContent = isLight ? '\ud83c\udf19 Modo Oscuro' : '\u2600\ufe0f Modo Claro';
+    });
+
+    // ─── LÓGICA DE PRESENCIA Y CHAT EN TIEMPO REAL ─────────────
+    // getSafeEmail está definida en el scope global (ver inicio del archivo)
+
+    // Iniciar presencia AHORA que Auth ya está verificado
+    const safeSelfEmail = getSafeEmail(sesion.correo);
+    DB.listenConexionState(safeSelfEmail, () => {
+        console.log('[Presencia] Conectado como:', sesion.nombre);
+    });
+
+    // Marcar offline al cerrar pestaña / navegar fuera
+    window.addEventListener('beforeunload', () => {
+        DB.setOffline(safeSelfEmail).catch(() => {});
+    });
+
+    // Escuchar estado de conexión de todos los usuarios
+    let presenciaUsuarios = {};
+    DB.listenPresencia((presencia) => {
+        presenciaUsuarios = presencia || {};
+        renderChatUsers();
+        renderOnlineWidget();
+        if (activeChatUser) {
+            actualizarEstadoChatActivo();
+        }
+    });
+
+    // Lógica del Widget Flotante de Usuarios en Línea
+    const widgetContainer = document.getElementById('online-users-widget');
+    const widgetToggle = document.getElementById('online-widget-toggle');
+    const widgetClose = document.getElementById('online-widget-close');
+
+    widgetToggle?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        widgetContainer?.classList.toggle('widget-open');
+    });
+
+    widgetClose?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        widgetContainer?.classList.remove('widget-open');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (widgetContainer && widgetContainer.classList.contains('widget-open')) {
+            if (!widgetContainer.contains(e.target)) {
+                widgetContainer.classList.remove('widget-open');
+            }
+        }
+    });
+
+    function renderOnlineWidget() {
+        const widgetCount = document.getElementById('online-widget-count');
+        const widgetList = document.getElementById('online-widget-list');
+        if (!widgetCount || !widgetList) return;
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const otrosUsuarios = usuarios.filter(u => u.correo.toLowerCase() !== sesion.correo.toLowerCase());
+
+        const conectados = otrosUsuarios.filter(u => {
+            const safe = getSafeEmail(u.correo);
+            return (presenciaUsuarios[safe] || {}).online === true;
+        });
+
+        widgetCount.textContent = `${conectados.length} en línea`;
+
+        widgetList.innerHTML = '';
+        if (conectados.length === 0) {
+            widgetList.innerHTML = `
+                <div style="text-align:center;color:var(--text-muted);padding:24px 0;font-size:0.8rem;">
+                    No hay siervos en línea
+                </div>
+            `;
+            return;
+        }
+
+        conectados.forEach(u => {
+            const item = document.createElement('div');
+            item.className = 'online-widget-item';
+            
+            let avatarHtml = '';
+            if (u.fotoUrl) {
+                avatarHtml = `<img src="${u.fotoUrl}">`;
+            } else {
+                const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                avatarHtml = `<div class="online-widget-placeholder" style="background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));">${iniciales}</div>`;
+            }
+
+            const areaFmt = normalizarArea(u.area) || 'General';
+
+            item.innerHTML = `
+                ${avatarHtml}
+                <div class="online-widget-info">
+                    <div class="online-widget-name">${u.nombre}</div>
+                    <div class="online-widget-meta">
+                        <span class="online-widget-badge">${areaFmt}</span>
+                        <span>🟢 En línea</span>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener('click', () => {
+                irA('chat-view');
+                widgetContainer?.classList.remove('widget-open');
+                
+                // Abrir conversación
+                activeChatUser = u;
+                abrirConversacion(u);
+                
+                // Highlight user in chat list
+                setTimeout(() => {
+                    renderChatUsers();
+                    const userItem = document.querySelector(`.chat-user-item[data-correo="${u.correo}"]`);
+                    if (userItem) {
+                        document.querySelectorAll('.chat-user-item').forEach(el => el.classList.remove('active'));
+                        userItem.classList.add('active');
+                    }
+                }, 100);
+            });
+
+            widgetList.appendChild(item);
+        });
+    }
+
+    let activeChatUser = null;
+    let todosLosMensajes = [];
+
+    // Cargar la lista de usuarios en el chat
+    function renderChatUsers() {
+        const usersListCont = document.getElementById('chat-users-list');
+        if (!usersListCont) return;
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const filtrados = usuarios.filter(u => u.correo.toLowerCase() !== sesion.correo.toLowerCase() && u.correo.toLowerCase() !== ADMIN_MAESTRO);
+
+        // Ordenar: Conectados primero (online), luego por orden alfabético de nombre
+        filtrados.sort((a, b) => {
+            const aSafe = getSafeEmail(a.correo);
+            const bSafe = getSafeEmail(b.correo);
+            const aOnline = (presenciaUsuarios[aSafe] || {}).online === true;
+            const bOnline = (presenciaUsuarios[bSafe] || {}).online === true;
+
+            if (aOnline && !bOnline) return -1;
+            if (!aOnline && bOnline) return 1;
+            return a.nombre.localeCompare(b.nombre);
+        });
+
+        // Actualizar contador en la cabecera del panel de usuarios
+        const onlineCount = filtrados.filter(u => {
+            const safe = getSafeEmail(u.correo);
+            return (presenciaUsuarios[safe] || {}).online === true;
+        }).length;
+
+        const sidebarHeaderEl = document.querySelector('.chat-sidebar-header h3');
+        if (sidebarHeaderEl) {
+            sidebarHeaderEl.textContent = `Equipo (${onlineCount} en línea)`;
+        }
+
+        usersListCont.innerHTML = '';
+        if (filtrados.length === 0) {
+            usersListCont.innerHTML = '<p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:20px 0;">No hay otros usuarios.</p>';
+            return;
+        }
+
+        filtrados.forEach(u => {
+            const safeEmail = getSafeEmail(u.correo);
+            const statusObj = presenciaUsuarios[safeEmail] || { online: false };
+            const isOnline = statusObj.online === true;
+
+            const item = document.createElement('div');
+            item.className = `chat-user-item ${activeChatUser && activeChatUser.correo.toLowerCase() === u.correo.toLowerCase() ? 'active' : ''}`;
+            item.dataset.correo = u.correo;
+
+            let avatarHtml = '';
+            if (u.fotoUrl) {
+                avatarHtml = `<img src="${u.fotoUrl}" class="chat-avatar">`;
+            } else {
+                const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                avatarHtml = `<div class="chat-avatar-placeholder" style="background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));">${iniciales}</div>`;
+            }
+
+            const statusDotClass = isOnline ? 'online' : 'offline';
+
+            item.innerHTML = `
+                ${avatarHtml}
+                <div class="chat-user-info" style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.88rem;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.nombre}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px;">
+                        <span class="presence-badge ${statusDotClass}"></span>
+                        <span>${isOnline ? 'En línea' : 'Desconectado'}</span>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.chat-user-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+                activeChatUser = u;
+                abrirConversacion(u);
+            });
+
+            usersListCont.appendChild(item);
+        });
+    }
+
+    function abrirConversacion(u) {
+        const formInput = document.getElementById('chat-input-form');
+        if (formInput) {
+            formInput.style.opacity = '1';
+            formInput.style.pointerEvents = 'all';
+        }
+
+        const activeName = document.getElementById('chat-active-name');
+        const activeAvatar = document.getElementById('chat-active-avatar');
+        if (activeName) activeName.textContent = u.nombre;
+        if (activeAvatar) {
+            if (u.fotoUrl) {
+                activeAvatar.innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            } else {
+                const iniciales = u.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
+                activeAvatar.innerHTML = iniciales;
+                activeAvatar.style.background = 'linear-gradient(135deg,var(--primary-color),var(--secondary-color))';
+            }
+        }
+        actualizarEstadoChatActivo();
+        renderConversacionMensajes();
+    }
+
+    function actualizarEstadoChatActivo() {
+        const activeStatus = document.getElementById('chat-active-status');
+        if (!activeStatus || !activeChatUser) return;
+        const safeEmail = getSafeEmail(activeChatUser.correo);
+        const statusObj = presenciaUsuarios[safeEmail] || { online: false };
+        if (statusObj.online === true) {
+            activeStatus.innerHTML = '<span style="color:#2ed573;font-weight:600;">● En línea</span>';
+        } else {
+            const ultimaConex = statusObj.ultima_conexion ? new Date(statusObj.ultima_conexion).toLocaleTimeString('es', {hour: '2-digit', minute:'2-digit'}) : '—';
+            activeStatus.textContent = `Desconectado (Últ. vez a las ${ultimaConex})`;
+        }
+    }
+
+    function renderConversacionMensajes() {
+        const messagesCont = document.getElementById('chat-messages-container');
+        if (!messagesCont || !activeChatUser) return;
+
+        messagesCont.innerHTML = '';
+
+        const filtrados = todosLosMensajes.filter(m => 
+            (m.sender && m.receiver) &&
+            ((m.sender.toLowerCase() === sesion.correo.toLowerCase() && m.receiver.toLowerCase() === activeChatUser.correo.toLowerCase()) ||
+            (m.sender.toLowerCase() === activeChatUser.correo.toLowerCase() && m.receiver.toLowerCase() === sesion.correo.toLowerCase()))
+        );
+
+        if (filtrados.length === 0) {
+            messagesCont.innerHTML = `<div style="text-align:center;color:var(--text-muted);margin-top:100px;font-size:0.85rem;">
+                <p>No hay mensajes en esta conversación. ¡Di hola! 👋</p>
+            </div>`;
+            return;
+        }
+
+        const ordenados = [...filtrados].sort((a,b) => a.timestamp - b.timestamp);
+
+        ordenados.forEach(m => {
+            const isSentByMe = m.sender.toLowerCase() === sesion.correo.toLowerCase();
+            const row = document.createElement('div');
+            row.className = `message-row ${isSentByMe ? 'sent' : 'received'}`;
+            
+            const timeFmt = new Date(m.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+            
+            row.innerHTML = `
+                <div class="message-bubble">${m.text}</div>
+                <div class="message-time">${timeFmt}</div>
+            `;
+            messagesCont.appendChild(row);
+        });
+
+        setTimeout(() => {
+            messagesCont.scrollTop = messagesCont.scrollHeight;
+        }, 30);
+    }
+
+    document.getElementById('chat-input-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById('chat-input-text');
+        if (!inputEl || !activeChatUser) return;
+        const text = inputEl.value.trim();
+        if (!text) return;
+
+        const msgObj = {
+            sender: sesion.correo,
+            receiver: activeChatUser.correo,
+            text: text,
+            timestamp: Date.now()
+        };
+
+        try {
+            await DB.enviarMensaje(msgObj);
+            inputEl.value = '';
+            const messagesCont = document.getElementById('chat-messages-container');
+            if (messagesCont) messagesCont.scrollTop = messagesCont.scrollHeight;
+        } catch (err) {
+            console.error("Error al enviar mensaje:", err);
+            showNotification('Error al enviar el mensaje.', 'error');
+        }
+    });
+
+    window._renderChatUsers = renderChatUsers;
+
+    DB.listenMensajes((mensajes) => {
+        todosLosMensajes = mensajes || [];
+        if (activeChatUser) {
+            renderConversacionMensajes();
+        }
+    });
+
+    navLinks.forEach(link => {
+        if (link.getAttribute('data-target') === 'chat-view') {
+            link.addEventListener('click', () => {
+                setTimeout(renderChatUsers, 50);
+                // Refrescar presencia propia al entrar al chat
+                const userRef = `${safeSelfEmail}`;
+                DB.listenConexionState(userRef);
+            });
+        }
+    });
+
+    // ─── REGISTRAR FUNCIONES GLOBALES PARA LISTENERS EN TIEMPO REAL ──
+    // Estas son llamadas por sincronizarDesdeFirebase() cuando appReady=true
+    window._cargarTablaUsuarios     = () => cargarTablaUsuarios(
+        document.getElementById('filtro-rol')?.value || '',
+        document.getElementById('filtro-area')?.value || ''
+    );
+    window._actualizarEstadisticas  = () => actualizarEstadisticas();
+    window._renderOnlineWidget      = () => renderOnlineWidget();
+    window._renderProyectos         = () => renderProyectos();
+    window._renderDashboard         = () => renderDashboardProyectosYTareas();
+    window._renderReservas          = () => renderReservasSemana();
+    window._renderDashProgramacion  = () => renderDashProgramacion();
+    window._renderRecursos          = () => renderRecursos();
+    window._renderRecursosPDFs      = () => renderRecursos();
+    window._renderChatUsers         = () => renderChatUsers();
+
+    // ─── BROADCAST DE CHAT (Admin / SuperLíder / Líder) ─────────
+    const puedeHacerBroadcast = sesion.rol === 'Admin' || sesion.rol === 'SuperLider' || sesion.rol === 'Lider';
+    const btnBroadcast = document.getElementById('btn-broadcast-chat');
+    if (btnBroadcast && puedeHacerBroadcast) {
+        btnBroadcast.style.display = 'inline-block';
+        // Prellenar el área destino según el rol del Líder
+        if (sesion.rol === 'Lider' && sesion.area) {
+            const broadcastSel = document.getElementById('broadcast-area');
+            if (broadcastSel) {
+                const opt = [...broadcastSel.options].find(o => o.value === sesion.area);
+                if (opt) broadcastSel.value = sesion.area;
+            }
+        }
+        btnBroadcast.addEventListener('click', () => {
+            document.getElementById('broadcast-modal')?.classList.remove('hidden');
+        });
+    }
+
+    // Cerrar broadcast-modal con X
+    document.querySelector('[data-modal="broadcast-modal"]')?.addEventListener('click', () => {
+        document.getElementById('broadcast-modal')?.classList.add('hidden');
+    });
+
+    document.getElementById('broadcast-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const areaDestino = document.getElementById('broadcast-area')?.value || '';
+        const mensaje     = document.getElementById('broadcast-message')?.value.trim() || '';
+        if (!mensaje) return;
+
+        // Si el Líder intenta enviar fuera de su área, bloquearlo
+        if (sesion.rol === 'Lider' && areaDestino && areaDestino !== sesion.area) {
+            showNotification('Solo puedes enviar mensajes a tu propia área.', 'error');
+            return;
+        }
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const destinatarios = usuarios.filter(u => {
+            if (u.correo.toLowerCase() === sesion.correo.toLowerCase()) return false;
+            if (!areaDestino) return true; // Broadcast a todos
+            return (u.area || '').toLowerCase() === areaDestino.toLowerCase();
+        });
+
+        if (destinatarios.length === 0) {
+            showNotification('No hay usuarios en esa área.', 'error');
+            return;
+        }
+
+        const textoFinal = `📢 [${areaDestino || 'Todos'}] ${mensaje}`;
+        const btnSubmit = e.target.querySelector('button[type="submit"]');
+        if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Enviando...'; }
+
+        try {
+            await Promise.all(destinatarios.map(u =>
+                DB.enviarMensaje({
+                    sender: sesion.correo,
+                    receiver: u.correo,
+                    text: textoFinal,
+                    timestamp: Date.now(),
+                    isBroadcast: true,
+                    areaDestino: areaDestino || 'Todos'
+                })
+            ));
+            document.getElementById('broadcast-modal')?.classList.add('hidden');
+            document.getElementById('broadcast-message').value = '';
+            showNotification(`✅ Mensaje enviado a ${destinatarios.length} usuario(s) del área.`);
+        } catch (err) {
+            console.error('Error broadcast:', err);
+            showNotification('Error al enviar el broadcast.', 'error');
+        } finally {
+            if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = '📤 Enviar a todos'; }
+        }
+    });
+
+    // ─── AUTO-ARCHIVADO PDFs: check cada minuto ───────────────
+    // esPdfExpirado ya está definido arriba — solo conectamos un intervalo
+    setInterval(() => {
+        if (window._renderRecursosPDFs) window._renderRecursosPDFs();
+        renderDashProgramacion();
+    }, 60000);
+
+    // Exportar render de PDFs para listeners en tiempo real
+    window._renderRecursosPDFs = () => renderRecursos();
+
+}); // fin DOMContentLoaded

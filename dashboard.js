@@ -238,10 +238,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const esLider = sesion.rol === 'Lider';
 
     const permitido = {
-        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
-        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','recursos-view','chat-view','ajustes-view'],
-        'Lider':      ['dashboard-view','usuarios-view','agenda-view','recursos-view','chat-view'],
-        'Siervo':     ['dashboard-view','agenda-view','recursos-view','chat-view']
+        'Admin':      ['dashboard-view','usuarios-view','proyectos-view','agenda-view','asistencia-view','programacion-view','aprende-view','chat-view','ajustes-view'],
+        'SuperLider': ['dashboard-view','usuarios-view','proyectos-view','agenda-view','asistencia-view','programacion-view','aprende-view','chat-view','ajustes-view'],
+        'Lider':      ['dashboard-view','usuarios-view','agenda-view','asistencia-view','programacion-view','aprende-view','chat-view'],
+        'Siervo':     ['dashboard-view','agenda-view','programacion-view','aprende-view','chat-view']
     };
     const acceso = permitido[sesion.rol] || permitido['Siervo'];
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
@@ -286,11 +286,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.close-modal').forEach(btn => {
         btn.addEventListener('click', () => {
             const modalId = btn.getAttribute('data-modal');
-            if (modalId) document.getElementById(modalId)?.classList.add('hidden');
+            if (modalId) {
+                document.getElementById(modalId)?.classList.add('hidden');
+                if (modalId === 'youtube-modal') document.getElementById('youtube-modal-iframe').src = '';
+            }
         });
     });
     document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+        modal.addEventListener('click', (e) => { 
+            if (e.target === modal) {
+                modal.classList.add('hidden');
+                if (modal.id === 'youtube-modal') document.getElementById('youtube-modal-iframe').src = '';
+            }
+        });
     });
 
     // ─── ESTADISTICAS ────────────────────────────────────────
@@ -326,20 +334,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         const rolColor = roleColors[sesion.rol] || '#2ed573';
 
         const accesosPorRol = {
-            'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-            'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-            'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
-            'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
+            'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Asistencia', 'Programación', 'Aprende', 'Ajustes'],
+            'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Asistencia', 'Programación', 'Aprende', 'Ajustes'],
+            'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Asistencia', 'Programación', 'Aprende'],
+            'Siervo':     ['Dashboard', 'Agenda', 'Programación', 'Aprende']
         };
         const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
+
+        const usuariosList = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const curUser = usuariosList.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        const imgTag = (curUser && curUser.fotoUrl)
+            ? `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
+            : sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
+
+        // Evitar redundancias en el texto (ej: Admin - Admin)
+        let roleDisplay = '';
+        if (sesion.nombre.toLowerCase() !== rolLabel.toLowerCase()) {
+            roleDisplay = ` &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>`;
+        }
+        
+        let areaDisplay = '';
+        if (sesion.area && sesion.area.toLowerCase() !== sesion.nombre.toLowerCase() && (!roleDisplay || sesion.area.toLowerCase() !== rolLabel.toLowerCase())) {
+            areaDisplay = ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>`;
+        }
 
         bienvenidaContent.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
                 <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
-                    ${sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase()}
+                    ${imgTag}
                 </div>
                 <div>
-                    <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                    <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span>${roleDisplay}${areaDisplay}</div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
                         ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
                     </div>
@@ -1057,6 +1082,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (titleEl) titleEl.textContent = `Agenda de Servicios`;
         if (rangeEl) rangeEl.textContent = 'Selecciona los servicios en los que participarás';
 
+        // Obtener ausencias del usuario actual
+        const usuariosReg = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const curUserObj = usuariosReg.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
+        const misAusencias = (curUserObj && curUserObj.ausencias) ? curUserObj.ausencias : [];
+
         /**
          * Construye la tabla de servicios para un grupo de días.
          * Cada columna = un día, cada fila = un horario.
@@ -1088,10 +1118,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const id       = `${prefix}-${ti}-${di}`;
                     const expirado = servicioExpirado(d, time);
                     const isReserved = misReservas.has(value);
+                    const dStrLocal = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+                    const esAusente = misAusencias.includes(dStrLocal);
 
                     if (expirado) {
                         t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;opacity:0.35;">
                             <span class="time-label compact-label" style="cursor:default;font-size:0.75rem;color:var(--text-muted);">Finalizado</span>
+                        </td>`;
+                    } else if (esAusente) {
+                        t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
+                            <span class="time-label compact-label" style="background:rgba(255,71,87,0.1);border-color:#ff4757;color:#ff4757;cursor:not-allowed;" title="Marcaste este día como No Disponible en tu perfil">No Disponible</span>
                         </td>`;
                     } else if (isReserved && esAdminAgenda) {
                         t += `<td class="text-center agenda-cell-${colorClass}" style="vertical-align:middle;">
@@ -1242,16 +1278,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const formAgenda = document.getElementById('agenda-form');
-    formAgenda?.addEventListener('submit', (e) => {
+    formAgenda?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const selected = document.querySelectorAll('input[name="agenda-servicios[]"]:checked:not(:disabled)');
         if (selected.length === 0) { showNotification('Selecciona al menos un horario.', 'error'); return; }
         const userName = sesion.nombre;
         const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+        
         selected.forEach(opt => {
             servicios.push({ servicio: opt.value, usuario: userName, area: sesion.area || '', fecha: new Date().toISOString() });
         });
         localStorage.setItem('servicios_reservados', JSON.stringify(servicios));
+        
+        // Enviar notificación al Líder del área
+        if (sesion.rol === 'Siervo' || sesion.rol === 'Lider') {
+            const lideres = JSON.parse(localStorage.getItem('lideres_area') || '{}');
+            const nombreLiderArea = lideres[sesion.area];
+            if (nombreLiderArea && nombreLiderArea !== sesion.nombre) {
+                const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+                const objLider = usuarios.find(u => u.nombre === nombreLiderArea);
+                if (objLider && objLider.uid) {
+                    selected.forEach(opt => {
+                        AUTH.crearNotificacion(objLider.uid, 'Nueva Asignación', `${userName} se ha agendado para: ${opt.value}`).catch(()=>{});
+                    });
+                }
+            }
+        }
+        
         actualizarEstadisticas();
         showNotification(`${selected.length} horario(s) reservado(s).`);
         generateAgendaMonth();
@@ -1848,8 +1901,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         }
+
+        // Lógica de Ausencias (Blockouts)
+        window._ausenciasTemporales = (u && u.ausencias) ? [...u.ausencias] : [];
+        renderAusenciasTemporales();
+
         renderHistorialAsistencia();
     }
+
+    function renderAusenciasTemporales() {
+        const list = document.getElementById('perfil-ausencias-list');
+        if (!list) return;
+        list.innerHTML = '';
+        window._ausenciasTemporales.forEach((fechaStr, i) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'background:rgba(255,71,87,0.1);border:1px solid rgba(255,71,87,0.3);color:#ff4757;padding:4px 10px;border-radius:12px;font-size:0.75rem;display:flex;align-items:center;gap:6px;';
+            const fFmt = new Date(fechaStr + 'T00:00:00').toLocaleDateString('es', { day: 'numeric', month: 'short' });
+            el.innerHTML = `<span>${fFmt}</span><span style="cursor:pointer;font-weight:bold;" onclick="window._removeAusencia(${i})">×</span>`;
+            list.appendChild(el);
+        });
+    }
+
+    window._removeAusencia = function(index) {
+        window._ausenciasTemporales.splice(index, 1);
+        renderAusenciasTemporales();
+    };
+
+    document.getElementById('btn-add-ausencia')?.addEventListener('click', () => {
+        const input = document.getElementById('perfil-ausencia-date');
+        if (!input.value) return;
+        if (!window._ausenciasTemporales.includes(input.value)) {
+            window._ausenciasTemporales.push(input.value);
+            window._ausenciasTemporales.sort();
+            renderAusenciasTemporales();
+        }
+        input.value = '';
+    });
 
     function renderHistorialAsistencia() {
         const cont = document.getElementById('perfil-historial-content');
@@ -1994,6 +2081,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 usuarios[idx].distrito = nuevoDis;
                 usuarios[idx].area     = nuevaArea;
                 usuarios[idx].subarea  = nuevaArea === 'T\u00e9cnica' ? (document.getElementById('perfil-subarea')?.value || 'Switcher') : '';
+                usuarios[idx].ausencias = window._ausenciasTemporales || [];
                 if (nuevaClave) {
                     const hash = await hashPassword(nuevaClave);
                     usuarios[idx].clave = hash;
@@ -2039,10 +2127,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const roleColors = { 'Admin': '#ff4757', 'SuperLider': '#ff6b6b', 'Lider': '#4facfe', 'Siervo': '#2ed573' };
                 const rolColor = roleColors[sesion.rol] || '#2ed573';
                 const accesosPorRol = {
-                    'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-                    'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Recursos', 'Ajustes'],
-                    'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Recursos'],
-                    'Siervo':     ['Dashboard', 'Agenda', 'Recursos']
+                    'Admin':      ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Asistencia', 'Programación', 'Aprende', 'Ajustes'],
+                    'SuperLider': ['Dashboard', 'Usuarios', 'Proyectos', 'Agenda', 'Asistencia', 'Programación', 'Aprende', 'Ajustes'],
+                    'Lider':      ['Dashboard', 'Usuarios', 'Agenda', 'Asistencia', 'Programación', 'Aprende'],
+                    'Siervo':     ['Dashboard', 'Agenda', 'Programación', 'Aprende']
                 };
                 const accesos = accesosPorRol[sesion.rol] || accesosPorRol['Siervo'];
                 const curUser = usuarios.find(x => x.correo.toLowerCase() === sesion.correo.toLowerCase());
@@ -2050,13 +2138,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ? `<img src="${curUser.fotoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
                     : sesion.nombre.split(' ').map(p => p[0]).join('').substring(0,2).toUpperCase();
 
+                // Evitar redundancias en el texto (ej: Admin - Admin)
+                let roleDisplay = '';
+                if (sesion.nombre.toLowerCase() !== rolLabel.toLowerCase()) {
+                    roleDisplay = ` &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>`;
+                }
+                
+                let areaDisplay = '';
+                if (sesion.area && sesion.area.toLowerCase() !== sesion.nombre.toLowerCase() && (!roleDisplay || sesion.area.toLowerCase() !== rolLabel.toLowerCase())) {
+                    areaDisplay = ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>`;
+                }
+
                 bienvenidaContent.innerHTML = `
                     <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;text-align:center;">
                         <div id="btn-abrir-perfil" title="Ver mi perfil" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--primary-color),var(--secondary-color));display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:white;flex-shrink:0;box-shadow:0 0 16px rgba(79,172,254,0.3);cursor:pointer;transition:transform 0.2s;" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform='scale(1)'">
                             ${imgTag}
                         </div>
                         <div>
-                            <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span> &nbsp;·&nbsp; <span style="color:${rolColor};font-weight:600;">${rolLabel}</span>${sesion.area ? ` &nbsp;·&nbsp; <span style="color:var(--text-muted);font-size:0.85rem;">${sesion.area}</span>` : ''}</div>
+                            <div style="font-size:1rem;font-weight:700;">${momento}, <span style="color:var(--primary-color);">${sesion.nombre.split(' ')[0]}</span>${roleDisplay}${areaDisplay}</div>
                             <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
                                 ${accesos.map(a => `<span style="background:rgba(79,172,254,0.1);border:1px solid rgba(79,172,254,0.25);border-radius:20px;padding:2px 10px;font-size:0.72rem;color:var(--primary-color);">${a}</span>`).join('')}
                             </div>
@@ -2198,15 +2297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('recursos-add-video-panel').style.display = puedeSubir ? '' : 'none';
         document.getElementById('recursos-add-pdf-panel').style.display   = puedeSubir ? '' : 'none';
 
-        // Programación siempre primero, Videos siempre después
-        const contenedor = document.getElementById('recursos-view');
-        const secVideos  = document.getElementById('recursos-videos-section');
-        const secPdfs    = document.getElementById('recursos-pdfs-section');
-        if (contenedor && secVideos && secPdfs) {
-            if (secVideos.previousElementSibling !== secPdfs) {
-                contenedor.insertBefore(secPdfs, secVideos);
-            }
-        }
+        // La vista ha sido separada en programacion-view y aprende-view en el HTML
 
         // Lista de videos — solo cards, sin tabla
         if (listaVideos) {
@@ -2217,23 +2308,39 @@ document.addEventListener('DOMContentLoaded', async () => {
                 videos.forEach((v, i) => {
                     const card = document.createElement('div');
                     card.className = 'recurso-card';
-                    const ytMatch = v.url.match(/(?:v=|youtu\.be\/)([^&?/]+)/);
-                    const thumb = ytMatch
-                        ? `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="recurso-thumb" alt="">`
-                        : '<div class="recurso-thumb-placeholder">🎬</div>';
-                    card.innerHTML = `
-                        <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link" style="flex:1;">
-                            ${thumb}
-                            <div class="recurso-info">
-                                <span class="recurso-titulo">${v.titulo}</span>
-                                <span class="recurso-url">${v.url.length > 50 ? v.url.substring(0,50)+'...' : v.url}</span>
+                    const ytMatch = v.url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/|live\/))([^&?/#]+)/);
+                    if (ytMatch) {
+                        const thumb = `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="recurso-thumb" alt="">`;
+                        card.innerHTML = `
+                            <div class="recurso-link" onclick="openYoutubeModal('${ytMatch[1]}', '${v.titulo.replace(/'/g, "\\'")}')" style="cursor:pointer;flex:1;display:flex;">
+                                ${thumb}
+                                <div class="recurso-info">
+                                    <span class="recurso-titulo">${v.titulo}</span>
+                                    <span class="recurso-url">▶️ Ver Video</span>
+                                </div>
                             </div>
-                        </a>
-                        ${puedeSubir ? `
-                        <div style="display:flex;gap:4px;flex-shrink:0;">
-                            <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
-                            <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
-                        </div>` : ''}`;
+                            ${puedeSubir ? `
+                            <div style="display:flex;gap:4px;flex-shrink:0;">
+                                <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                                <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                            </div>` : ''}
+                        `;
+                    } else {
+                        const thumb = '<div class="recurso-thumb-placeholder">🎬</div>';
+                        card.innerHTML = `
+                            <a href="${v.url}" target="_blank" rel="noopener" class="recurso-link" style="flex:1;">
+                                ${thumb}
+                                <div class="recurso-info">
+                                    <span class="recurso-titulo">${v.titulo}</span>
+                                    <span class="recurso-url">${v.url.length > 50 ? v.url.substring(0,50)+'...' : v.url}</span>
+                                </div>
+                            </a>
+                            ${puedeSubir ? `
+                            <div style="display:flex;gap:4px;flex-shrink:0;">
+                                <button class="btn-secondary btn-edit-recurso-video" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">✏️</button>
+                                <button class="btn-danger recurso-del" data-tipo="videos" data-idx="${i}" style="padding:4px 8px;font-size:0.7rem;">🗑️</button>
+                            </div>` : ''}`;
+                    }
                     listaVideos.appendChild(card);
                 });
             }
@@ -2368,6 +2475,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     } // fin renderRecursos
+
+    // Lógica para abrir el Modal de YouTube
+    window.openYoutubeModal = function(videoId, title) {
+        document.getElementById('youtube-modal-titulo').textContent = title;
+        document.getElementById('youtube-modal-iframe').src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+        document.getElementById('youtube-modal').classList.remove('hidden');
+    };
 
     // ── Delegación de eventos recursos (una sola vez) ──
     document.getElementById('recursos-videos-lista')?.addEventListener('click', (e) => {
@@ -2515,7 +2629,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Cargar recursos al entrar a la vista y al inicio
     navLinks.forEach(link => {
-        if (link.getAttribute('data-target') === 'recursos-view') {
+        const target = link.getAttribute('data-target');
+        if (target === 'programacion-view' || target === 'aprende-view') {
             link.addEventListener('click', () => { setTimeout(renderRecursos, 50); poblarSelectorServicios(); });
         }
         // Regenerar agenda al entrar para tener reservas actualizadas

@@ -55,14 +55,21 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
                         Eventos Especiales
                     </a></li>
-
                     <li><a href="#" class="nav-link" data-target="agenda-view">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                        Agenda
+                        Agenda de Servicio
                     </a></li>
-                    <li><a href="#" class="nav-link" data-target="recursos-view">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                        Recursos
+                    <li><a href="#" class="nav-link" data-target="asistencia-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>
+                        Métricas y Asistencia
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="programacion-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                        Programación
+                    </a></li>
+                    <li><a href="#" class="nav-link" data-target="aprende-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                        Aprende
                     </a></li>
                     <li><a href="#" class="nav-link" data-target="chat-view">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -81,6 +88,22 @@
                 </a>
             </div>
         </aside>
+
+        <!-- Notificaciones Flotante -->
+        <div id="notificaciones-widget" style="position:fixed; top:20px; right:20px; z-index:9990;">
+            <div id="notif-trigger" style="position:relative;cursor:pointer;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:50%;width:45px;height:45px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);transition:transform 0.2s;">
+                <span id="notif-bell" style="font-size:1.3rem;">🔔</span>
+                <span id="notif-badge" style="display:none;position:absolute;top:-2px;right:-2px;background:#ff4757;color:white;border-radius:50%;padding:2px 6px;font-size:0.7rem;font-weight:bold;">0</span>
+            </div>
+            <div id="notif-dropdown" class="glass-panel hidden" style="position:absolute;top:55px;right:0;width:320px;max-height:400px;overflow-y:auto;z-index:9999;box-shadow:0 10px 30px rgba(0,0,0,0.5);padding:0;">
+                <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,0.1);font-weight:bold;display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);">
+                    Notificaciones <button id="btn-marcar-leidas" style="background:none;border:none;color:var(--primary-color);font-size:0.8rem;cursor:pointer;font-weight:600;">Marcar todo leído</button>
+                </div>
+                <div id="notif-list" style="padding:10px;display:flex;flex-direction:column;gap:8px;">
+                    <div style="padding:15px;font-size:0.85rem;color:var(--text-muted);text-align:center;">Sin notificaciones nuevas.</div>
+                </div>
+            </div>
+        </div>
 
         <!-- Contenido Principal -->
         <main class="main-content">
@@ -170,7 +193,7 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Técnica">Técnica (Switchers/Cámaras)</option>
+                                <option value="Técnica">Áreas (Switchers/Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
@@ -266,6 +289,7 @@
                             <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px;" id="agenda-week-range"></p>
                         </div>
                         <div style="display:flex;gap:8px;align-items:center;" id="agenda-admin-controls">
+                            <button class="btn-secondary" id="btn-exportar-agenda" style="padding:4px 10px;font-size:0.78rem;" title="Exportar Rol a Imagen para WhatsApp">📸 Exportar a Imagen</button>
                             <!-- Solo Admin: ver reservas de todos -->
                             <button class="btn-secondary" id="btn-ver-reservas" style="display:none;">👥 Ver quién reservó</button>
                         </div>
@@ -277,10 +301,66 @@
                 </div>
             </div>
 
-            <!-- VISTA: RECURSOS -->
-            <div id="recursos-view" class="view-section hidden-view">
-                <!-- Para Admin/Líderes: Videos primero, luego PDFs -->
-                <!-- Para Siervos: PDFs primero, luego Videos (se reordena por JS) -->
+            <!-- VISTA: ASISTENCIA Y MÉTRICAS (Power BI Style) -->
+            <div id="asistencia-view" class="view-section hidden-view">
+                <div class="details-panel glass-panel" style="margin-bottom:20px;">
+                    <div class="panel-heading" style="margin-bottom:20px;">
+                        <div>
+                            <h2>📊 Métricas de Asistencia</h2>
+                            <p style="color:var(--text-muted);font-size:0.85rem;">Panel de control estilo Power BI</p>
+                        </div>
+                        <div>
+                            <select id="stats-area-filter" class="filter-select" style="padding:6px 12px;font-size:0.85rem;display:none;">
+                                <option value="">Todas las áreas</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:20px;margin-bottom:20px;">
+                        <div class="glass-panel" style="padding:20px;background:rgba(46,213,115,0.05);border:1px solid rgba(46,213,115,0.2);text-align:center;">
+                            <h3 style="color:var(--text-muted);font-size:0.9rem;margin-bottom:10px;">Total Confirmados</h3>
+                            <div id="kpi-confirmados" style="font-size:2.5rem;font-weight:800;color:#2ed573;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:20px;background:rgba(255,71,87,0.05);border:1px solid rgba(255,71,87,0.2);text-align:center;">
+                            <h3 style="color:var(--text-muted);font-size:0.9rem;margin-bottom:10px;">Ausencias Registradas</h3>
+                            <div id="kpi-ausencias" style="font-size:2.5rem;font-weight:800;color:#ff4757;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:20px;background:rgba(79,172,254,0.05);border:1px solid rgba(79,172,254,0.2);text-align:center;">
+                            <h3 style="color:var(--text-muted);font-size:0.9rem;margin-bottom:10px;">Eventos Evaluados</h3>
+                            <div id="kpi-eventos" style="font-size:2.5rem;font-weight:800;color:#4facfe;">0</div>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:20px;">
+                        <div class="glass-panel" style="padding:20px;">
+                            <h3 style="margin-bottom:15px;font-size:1rem;text-align:center;">Asistencia por Evento</h3>
+                            <div style="position:relative;height:250px;width:100%;">
+                                <canvas id="chartBarAsistencia"></canvas>
+                            </div>
+                        </div>
+                        <div class="glass-panel" style="padding:20px;">
+                            <h3 style="margin-bottom:15px;font-size:1rem;text-align:center;">Distribución Global</h3>
+                            <div style="position:relative;height:250px;width:100%;">
+                                <canvas id="chartDoughnutEstado"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detalle de Siervos del Lider -->
+                <div class="details-panel glass-panel" id="stats-equipo-container" style="display:none;">
+                    <div class="panel-heading">
+                        <h2>👥 Mi Equipo</h2>
+                        <span style="font-size:0.85rem;color:var(--text-muted);">Asistencia detallada de siervos</span>
+                    </div>
+                    <div id="stats-equipo-list" class="activity-list" style="margin-top:16px;">
+                        <!-- Se llena con JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA: PROGRAMACIÓN -->
+            <div id="programacion-view" class="view-section hidden-view">
                 <div id="recursos-pdfs-section" class="details-panel glass-panel" style="margin-bottom:20px;">
                     <div class="panel-heading">
                         <h2>📄 Programación</h2>
@@ -317,9 +397,13 @@
                         <div id="recursos-pdfs-historial-lista"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- VISTA: APRENDE -->
+            <div id="aprende-view" class="view-section hidden-view">
                 <div id="recursos-videos-section" class="details-panel glass-panel">
                     <div class="panel-heading">
-                        <h2>🎬 Videos</h2>
+                        <h2>🎬 Aprende (Videos y Tutoriales)</h2>
                         <span id="recursos-videos-count" style="color:var(--secondary-color);font-size:0.85rem;"></span>
                     </div>
                     <div id="recursos-add-video-panel">
@@ -334,10 +418,10 @@
                                 <label>URL de YouTube</label>
                                 <input type="url" id="video-url" placeholder="https://youtube.com/..." required>
                             </div>
-                            <button type="submit" class="btn-primary" style="max-width:160px;margin-top:4px;font-size:0.85rem;">+ Agregar</button>
+                            <button type="submit" class="btn-primary" style="max-width:160px;margin-top:4px;font-size:0.85rem;">+ Agregar Video</button>
                         </form>
                     </div>
-                    <div id="recursos-videos-lista" style="margin-top:16px;"></div>
+                    <div id="recursos-videos-lista" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:16px;"></div>
                 </div>
             </div>
 
@@ -423,7 +507,7 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
+                                <option value="Técnica">🎛️ Áreas (Switchers / Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
@@ -538,6 +622,17 @@
                 </div>
             </div>
 
+            <!-- MODAL: YOUTUBE -->
+            <div id="youtube-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:800px; width:95%; padding:20px;">
+                    <span class="close-modal" data-modal="youtube-modal" onclick="document.getElementById('youtube-modal-iframe').src=''" style="position:absolute;top:10px;right:15px;font-size:1.5rem;cursor:pointer;">&times;</span>
+                    <h2 id="youtube-modal-titulo" style="margin-bottom:16px; font-size:1.2rem;"></h2>
+                    <div style="position:relative; padding-bottom:56.25%; height:0; overflow:hidden; border-radius:8px;">
+                        <iframe id="youtube-modal-iframe" style="position:absolute; top:0; left:0; width:100%; height:100%;" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                    </div>
+                </div>
+            </div>
+
             <!-- MODAL: BROADCAST (Enviar mensaje a área) -->
             <div id="broadcast-modal" class="modal hidden">
                 <div class="modal-content glass-panel" style="max-width:460px;">
@@ -553,7 +648,7 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Técnica">Técnica (Switchers/Cámaras)</option>
+                                <option value="Técnica">Áreas (Switchers/Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
@@ -620,7 +715,7 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
+                                <option value="Técnica">🎛️ Áreas (Switchers / Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
@@ -636,7 +731,16 @@
                                 <option value="Cámaras">📸 Cámaras</option>
                             </select>
                         </div>
-                        <div class="input-group">
+                        <div class="input-group" style="margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
+                            <label>🏖️ Fechas No Disponibles (Blockouts)</label>
+                            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">Agrega los días que no podrás servir (viajes, exámenes, etc.)</p>
+                            <div style="display:flex;gap:8px;">
+                                <input type="date" id="perfil-ausencia-date" style="flex:1;">
+                                <button type="button" class="btn-secondary" id="btn-add-ausencia" style="padding:0 15px;width:auto;">Añadir</button>
+                            </div>
+                            <div id="perfil-ausencias-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;"></div>
+                        </div>
+                        <div class="input-group" style="margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
                             <label>Nueva Contraseña (dejar en blanco para no cambiar)</label>
                             <input type="password" id="perfil-password" placeholder="••••••••">
                         </div>
@@ -724,6 +828,13 @@
         </div>
     </div>
 
+    <!-- Librerías Externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Módulos de la Aplicación -->
     <script src="dashboard.js" type="module"></script>
+    <script src="js/exportar.js" type="module"></script>
+    <script src="js/estadisticas.js" type="module"></script>
 </body>
 </html>

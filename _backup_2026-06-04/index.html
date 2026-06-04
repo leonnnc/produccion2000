@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Producción - Portal de Acceso</title>
+    <!-- Mejora SEO -->
+    <meta name="description" content="Portal de acceso y registro para el equipo de producción. Únete a nuestro equipo en diferentes áreas.">
+    <!-- Preconnect para acelerar recursos externos -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://produccion-erp-bea1a-default-rtdb.firebaseio.com" crossorigin>
+    <!-- Preload de recursos críticos -->
+    <link rel="preload" href="style.css" as="style">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" as="style">
+    <!-- Estilos -->
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4facfe">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ProDUC">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+    <script>(function(){ if(localStorage.getItem('tema')==='light') document.body.classList.add('light-mode'); })();</script>
+    <!-- Efectos visuales de fondo (Futurista) -->
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+    </div>
+    
+    <main class="container">
+        <!-- Tarjeta de Login -->
+        <div class="glass-panel" id="login-panel">
+            <div class="panel-header">
+                <h1>Bienvenido a <span class="highlight">Producción</span></h1>
+                <p>Ingresa tus credenciales para continuar</p>
+            </div>
+            <form id="login-form">
+                <div class="input-group">
+                    <label for="login-email">Correo Electrónico</label>
+                    <input type="email" id="login-email" required placeholder="tu@correo.com">
+                </div>
+                <div class="input-group">
+                    <label for="login-password">Contraseña</label>
+                    <input type="password" id="login-password" required placeholder="••••••••">
+                    <a href="#" id="show-forgot" style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;text-align:right;display:block;">¿Olvidaste tu contraseña?</a>
+                </div>
+                <button type="submit" class="btn-primary">Iniciar Sesión</button>
+            </form>
+            <div class="panel-footer">
+                <p>¿No estás registrado? <a href="#" id="show-register">Regístrate aquí</a></p>
+            </div>
+        </div>
+
+        <!-- Tarjeta de Recuperación de Contraseña -->
+        <div class="glass-panel hidden" id="forgot-panel">
+            <div class="panel-header">
+                <h1>Recuperar <span class="highlight">Acceso</span></h1>
+                <p>Ingresa tu correo y te daremos una clave temporal</p>
+            </div>
+            <form id="forgot-form">
+                <div class="input-group">
+                    <label for="forgot-email">Correo Electrónico</label>
+                    <input type="email" id="forgot-email" required placeholder="tu@correo.com">
+                </div>
+                <button type="submit" class="btn-primary">Generar Clave Temporal</button>
+            </form>
+            <div id="forgot-result" style="display:none;margin-top:20px;padding:16px;background:rgba(46,213,115,0.1);border:1px solid rgba(46,213,115,0.3);border-radius:12px;">
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:8px;">Tu clave temporal es:</p>
+                <p id="forgot-clave-display" style="font-size:1.4rem;font-weight:800;color:#2ed573;letter-spacing:4px;text-align:center;"></p>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;text-align:center;">Úsala para ingresar y cámbiala en Ajustes → Mi Perfil</p>
+            </div>
+            <div class="panel-footer">
+                <p>¿Ya recordaste? <a href="#" id="show-login-from-forgot">Inicia Sesión</a></p>
+            </div>
+        </div>
+
+        <!-- Tarjeta de Registro -->
+        <div class="glass-panel hidden" id="register-panel">
+            <div class="panel-header">
+                <h1>Únete al <span class="highlight">Equipo</span></h1>
+                <p>Completa tus datos para registrarte</p>
+            </div>
+            <form id="register-form">
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-nombre">Nombres</label>
+                        <input type="text" id="reg-nombre" required placeholder="Ej: Juan">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-apellido">Apellidos</label>
+                        <input type="text" id="reg-apellido" required placeholder="Ej: Pérez">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="reg-correo">Correo Electrónico</label>
+                    <input type="email" id="reg-correo" required placeholder="tu@correo.com">
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-password">Contraseña</label>
+                        <input type="password" id="reg-password" required minlength="6" placeholder="••••••••">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-password-confirm">Confirmar Contraseña</label>
+                        <input type="password" id="reg-password-confirm" required minlength="6" placeholder="••••••••">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="reg-telefono">Teléfono</label>
+                        <input type="tel" id="reg-telefono" required placeholder="+51 999 999 999">
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-distrito">Distrito</label>
+                        <input type="text" id="reg-distrito" required placeholder="Tu distrito">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="reg-area">Área a la que perteneces</label>
+                    <select id="reg-area" required onchange="document.getElementById('tecnica-subarea-group').style.display=this.value==='T\u00e9cnica'?'':'none'">
+                        <option value="" disabled selected>Selecciona un área...</option>
+                        <option value="Visuales">Visuales</option>
+                        <option value="Filmakers">Filmakers</option>
+                        <option value="Fotografía">Fotografía</option>
+                        <option value="Coordinación">Coordinación</option>
+                        <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
+                        <option value="Streaming">Streaming</option>
+                        <option value="Luces">Luces</option>
+                        <option value="Diseño">Diseño</option>
+                        <option value="Edición">Edición</option>
+                        <option value="Protocolos">Protocolos</option>
+                    </select>
+                </div>
+                <!-- Sub-área para Técnica -->
+                <div class="input-group" id="tecnica-subarea-group" style="display:none;">
+                    <label for="reg-subarea">Área Específica</label>
+                    <select id="reg-subarea">
+                        <option value="Switcher">🎛️ Switcher</option>
+                        <option value="Cámaras">📸 Cámaras</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary">Completar Registro</button>
+            </form>
+            <div class="panel-footer">
+                <p>¿Ya tienes una cuenta? <a href="#" id="show-login">Inicia Sesión</a></p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Pantalla de carga post-login -->
+    <div id="loading-screen" class="loading-screen" style="display:none">
+        <div class="loading-bg-orbs">
+            <div class="loading-orb lo-1"></div>
+            <div class="loading-orb lo-2"></div>
+            <div class="loading-orb lo-3"></div>
+        </div>
+        <div class="loading-content">
+            <div class="loading-logo">
+                <span class="loading-logo-text">Pro<span class="loading-logo-accent">DUC</span></span>
+                <div class="loading-logo-glow"></div>
+            </div>
+            <div class="loading-ring-wrapper">
+                <svg class="loading-ring" viewBox="0 0 120 120">
+                    <defs>
+                        <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#4facfe"/>
+                            <stop offset="100%" stop-color="#00f2fe"/>
+                        </linearGradient>
+                    </defs>
+                    <circle class="ring-track" cx="60" cy="60" r="50"/>
+                    <circle class="ring-fill" cx="60" cy="60" r="50" id="ring-progress"/>
+                </svg>
+                <div class="loading-countdown" id="loading-countdown">3</div>
+            </div>
+            <p class="loading-label" id="loading-label">Preparando tu espacio...</p>
+            <div class="loading-dots">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js" type="module" defer></script>
+</body>
+</html>

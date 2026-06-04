@@ -204,8 +204,35 @@ export const DB = {
     // Recursos Videos
     getVideos:    () => getCollection(KEYS.recursos_videos),
     setVideos:    (arr) => setCollection(KEYS.recursos_videos, arr),
-    listenVideos: (cb) => listenCollection(KEYS.recursos_videos, cb),
+    listenVideos: (cb) => listenCollection('recursos_videos', cb),
 
+    // Notificaciones
+    listenNotificaciones: (uid, cb) => {
+        onValue(ref(db, `notificaciones_usuarios/${uid}`), (snap) => {
+            if (!snap.exists()) { cb([]); return; }
+            const val = snap.val();
+            const arr = Array.isArray(val) ? val.filter(Boolean) : Object.values(val);
+            arr.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+            cb(arr);
+        });
+    },
+    crearNotificacion: async (uid, titulo, mensaje) => {
+        const notiRef = child(ref(db, `notificaciones_usuarios/${uid}`), Date.now().toString());
+        await set(notiRef, {
+            id: notiRef.key,
+            titulo,
+            mensaje,
+            fecha: new Date().toISOString(),
+            leida: false
+        });
+    },
+    marcarNotificacionLeida: async (uid, notiId) => {
+        await update(ref(db, `notificaciones_usuarios/${uid}/${notiId}`), { leida: true });
+    },
+
+    // Extras para estado de presencia
+    getRefEspecial: (path) => ref(db, path),
+    
     // Líderes de área (objeto)
     getLideres:  () => getObject(KEYS.lideres),
     setLideres:  (obj) => setObject(KEYS.lideres, obj),
