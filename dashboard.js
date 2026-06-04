@@ -44,15 +44,24 @@ localStorage.setItem = function(key, value) {
 function updateLocalCache(key, data) {
     if (data === null || data === undefined) return;
     isSyncingFromFirebase = true;
-    _lsSetItem(key, JSON.stringify(data));
-    isSyncingFromFirebase = false;
+    try {
+        _lsSetItem(key, JSON.stringify(data));
+    } finally {
+        isSyncingFromFirebase = false;
+    }
+}
+
+// getSafeEmail en scope global para uso en logout y presencia
+function getSafeEmail(email) {
+    if (!email) return '';
+    return email.toLowerCase().replace(/\./g, '_').replace(/@/g, '_at_');
 }
 
 // Bandera para saber si ya cargamos la app para poder re-renderizar
 let appReady = false;
 
 async function sincronizarDesdeFirebase() {
-    // Sincronización inicial rápida para no bloquear
+    // Sincronización inicial — carga todos los datos antes de renderizar
     const [usr, proy, serv, asi, acep, com, pdfs, vids, lid] = await Promise.all([
         DB.getUsuarios(), DB.getProyectos(), DB.getServicios(),
         DB.getAsistencias(), DB.getAceptaciones(), DB.getComentarios(),
@@ -68,12 +77,38 @@ async function sincronizarDesdeFirebase() {
     updateLocalCache('recursos_videos', vids);
     updateLocalCache('lideres_area', lid);
 
-    // Iniciar listeners en tiempo real
-    DB.listenUsuarios(d => { updateLocalCache('usuarios_registrados', d); if(appReady && window._cargarTablaUsuarios) window._cargarTablaUsuarios(); });
-    DB.listenProyectos(d => { updateLocalCache('proyectos_creados', d); if(appReady && window._renderProyectos) window._renderProyectos(); });
-    DB.listenServicios(d => { updateLocalCache('servicios_reservados', d); if(appReady && window._actualizarEstadisticas) window._actualizarEstadisticas(); });
-    DB.listenPdfs(d => { updateLocalCache('recursos_pdfs', d); if(appReady && window._renderRecursosPDFs) window._renderRecursosPDFs(); });
-    DB.listenVideos(d => { updateLocalCache('recursos_videos', d); if(appReady && window._renderRecursosVideos) window._renderRecursosVideos(); });
+    // Listeners en tiempo real — solo actualizan UI cuando appReady=true
+    // Usan window.* para evitar referencias a funciones no definidas aún
+    DB.listenUsuarios(d => {
+        updateLocalCache('usuarios_registrados', d);
+        if (!appReady) return;
+        if (window._cargarTablaUsuarios)     window._cargarTablaUsuarios();
+        if (window._actualizarEstadisticas)  window._actualizarEstadisticas();
+        if (window._renderOnlineWidget)      window._renderOnlineWidget();
+    });
+    DB.listenProyectos(d => {
+        updateLocalCache('proyectos_creados', d);
+        if (!appReady) return;
+        if (window._renderProyectos)         window._renderProyectos();
+        if (window._renderDashboard)         window._renderDashboard();
+    });
+    DB.listenServicios(d => {
+        updateLocalCache('servicios_reservados', d);
+        if (!appReady) return;
+        if (window._renderReservas)          window._renderReservas();
+        if (window._actualizarEstadisticas)  window._actualizarEstadisticas();
+    });
+    DB.listenPdfs(d => {
+        updateLocalCache('recursos_pdfs', d);
+        if (!appReady) return;
+        if (window._renderDashProgramacion)  window._renderDashProgramacion();
+        if (window._renderRecursos)          window._renderRecursos();
+    });
+    DB.listenVideos(d => {
+        updateLocalCache('recursos_videos', d);
+        if (!appReady) return;
+        if (window._renderRecursos)          window._renderRecursos();
+    });
 }
 
 // Variable global para el offset de la agenda
@@ -84,9 +119,9 @@ const ADMIN_MAESTRO = 'admin@produccion.com';
 
 const AREA_MAP = {
     'visuales': 'Visuales', 'filmakers': 'Filmakers', 'fotografia': 'Fotografía',
-    'coordinacion': 'Coordinación', 'switchers': 'Switchers', 'streaming': 'Streaming',
-    'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
-    'protocolos': 'Protocolos', 'camaras': 'Cámaras', 'administracion': 'Administración'
+    'coordinacion': 'Coordinación', 'tecnica': 'Técnica', 'switchers': 'Técnica', 'camaras': 'Técnica',
+    'streaming': 'Streaming', 'luces': 'Luces', 'diseno': 'Diseño', 'edicion': 'Edición',
+    'protocolos': 'Protocolos', 'administracion': 'Administración'
 };
 
 function normalizarArea(area) {
@@ -120,53 +155,62 @@ function confirmar(titulo, mensaje, onOk) {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-    // Esperar a que Firebase Auth verifique la sesión antes de hacer peticiones a la DB
-    const authReady = await new Promise((resolve) => {
-        const unsubscribe = AUTH.onEstadoCambiado(user => {
-            unsubscribe();
-            resolve(!!user);
-        });
-    });
-
-    if (!authReady) {
-        sessionStorage.removeItem('sesion_activa');
-        window.location.replace('index.html');
-        return;
+    // ── Helper para el overlay de carga ──────────────────────
+    const overlay    = document.getElementById('dash-loading-overlay');
+    const overlayMsg = document.getElementById('dash-loading-msg');
+    
+    function setLoadingMsg(msg) {
+        if (overlayMsg) overlayMsg.textContent = msg;
     }
+    
+    let overlayTimeout;
+    function ocultarOverlay() {
+        if (!overlay) return;
+        overlay.style.opacity = '0';
+        overlay.style.transform = 'scale(1.02)';
+        setTimeout(() => { overlay.style.display = 'none'; }, 420);
+    }
+    
+    // Seguro: ocultar overlay máximo en 2 segundos si algo falla
+    overlayTimeout = setTimeout(ocultarOverlay, 2000);
 
+    // ── Leer sesión guardada por el login (instantáneo, sin red) ─
     const sesionRaw = sessionStorage.getItem('sesion_activa');
-    let sesion      = sesionRaw ? JSON.parse(sesionRaw) : null;
-    if (!sesion) { AUTH.logout(); window.location.replace('index.html'); return; }
+    let sesion = sesionRaw ? JSON.parse(sesionRaw) : null;
+    if (!sesion) { window.location.replace('index.html'); return; }
 
-    // Sincronizar datos desde Firebase antes de renderizar (ahora es seguro)
-    try {
-        await sincronizarDesdeFirebase();
-        migrarFormatosServicios();
-    } catch(err) {
-        console.error("Error sincronizando DB:", err);
-    }
+    // ── Ocultar overlay — mostrar dashboard AHORA ────────────
+    clearTimeout(overlayTimeout);
+    ocultarOverlay();
+    appReady = true;
 
-    // ─── VERIFICACIÓN DE ROL CONTRA FIREBASE ─────────────────
-    // Evita que un usuario manipule su rol en sessionStorage.
-    try {
-        const usuarios = await DB.getUsuarios();
-        const usuarioReal = usuarios.find(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
-        if (!usuarioReal) {
-            // La cuenta fue eliminada mientras estaba activa
-            sessionStorage.removeItem('sesion_activa');
-            window.location.replace('index.html');
-            return;
-        }
-        // Sincronizar rol y área desde Firebase (fuente de verdad)
-        if (usuarioReal.rol !== sesion.rol || usuarioReal.area !== sesion.area || usuarioReal.nombre !== sesion.nombre) {
-            sesion.rol    = usuarioReal.rol;
-            sesion.area   = usuarioReal.area || '';
-            sesion.nombre = usuarioReal.nombre;
-            sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
-        }
-    } catch (e) {
-        // Continuar con la sesión local si hay error de red
-    }
+    // ── Sincronizar Firebase en background (no bloquea la UI) ─
+    sincronizarDesdeFirebase()
+        .then(() => {
+            migrarFormatosServicios();
+            // Verificar que el usuario siga existiendo y su rol sea correcto
+            const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const usuarioReal = usuarios.find(u => u.correo.toLowerCase() === sesion.correo.toLowerCase());
+            if (!usuarioReal) {
+                sessionStorage.removeItem('sesion_activa');
+                window.location.replace('index.html');
+                return;
+            }
+            if (usuarioReal.rol !== sesion.rol || usuarioReal.area !== sesion.area || usuarioReal.nombre !== sesion.nombre) {
+                sesion.rol    = usuarioReal.rol;
+                sesion.area   = usuarioReal.area || '';
+                sesion.nombre = usuarioReal.nombre;
+                sessionStorage.setItem('sesion_activa', JSON.stringify(sesion));
+            }
+            // Refrescar UI con datos frescos de Firebase
+            if (window._actualizarEstadisticas) window._actualizarEstadisticas();
+            if (window._renderDashboard)        window._renderDashboard();
+            if (window._renderReservas)         window._renderReservas();
+            if (window._renderDashProgramacion) window._renderDashProgramacion();
+            if (window._cargarTablaUsuarios)    window._cargarTablaUsuarios();
+        })
+        .catch(() => {}); // Continuar sin datos frescos si hay error de red
+
 
     const displayRole = document.querySelector('.user-role');
     if (displayRole) {
@@ -212,8 +256,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.querySelector('.logout-btn')?.addEventListener('click', (e) => {
         e.preventDefault();
-        confirmar('Cerrar sesion', '\u00bfSeguro que quieres salir?', () => {
+        confirmar('Cerrar sesion', '\u00bfSeguro que quieres salir?', async () => {
+            // Marcar offline antes de salir
+            try { await DB.setOffline(getSafeEmail(sesion.correo)); } catch(e) {}
             sessionStorage.removeItem('sesion_activa');
+            AUTH.logout();
             window.location.replace('index.html');
         });
     });
@@ -368,6 +415,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.dataset.correo = u.correo;
         card.className = 'usuario-card';
         card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;transition:border-color 0.2s;';
+        // Info de líderes del área
+        const superliderInfo = (() => {
+            const todos = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+            const sl = todos.find(x => x.rol === 'SuperLider');
+            return sl ? sl.nombre : null;
+        })();
+        const liderDelArea = lideres[u.area] || null;
+        const jerarquiaHtml = (u.rol === 'Siervo' || u.rol === 'Lider') ? `
+            <div style="font-size:0.72rem;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap;padding-left:4px;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;margin-top:2px;">
+                ${superliderInfo ? `<span>👑 SuperLíder: <strong style="color:#ff6b6b;">${superliderInfo}</strong></span>` : ''}
+                ${liderDelArea && liderDelArea !== u.nombre ? `<span>👀 Líder: <strong style="color:#ffd166;">${liderDelArea}</strong></span>` : ''}
+            </div>` : '';
+        const areaMostrada = (u.area === 'Técnica' && u.subarea) ? u.subarea : (u.area || '—');
+        const subareaDisplay = (u.subarea && u.area !== 'Técnica') ? ` <span style="font-size:0.68rem;background:rgba(79,172,254,0.12);border:1px solid rgba(79,172,254,0.3);color:var(--primary-color);border-radius:20px;padding:1px 7px;">${u.subarea}</span>` : '';
         card.innerHTML = `
             <div style="display:flex;align-items:center;gap:12px;">
                 <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,${rolColor}44,${rolColor}22);border:2px solid ${rolColor}66;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:${rolColor};flex-shrink:0;overflow:hidden;">${avatarContent}</div>
@@ -378,10 +439,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <span class="role-badge ${rolClass}" style="flex-shrink:0;">${u.rol}</span>
             </div>
             <div style="display:flex;gap:14px;font-size:0.8rem;color:var(--text-muted);flex-wrap:wrap;padding-left:4px;">
-                <span>🎯 ${u.area || '—'}</span>
-                <span>📞 ${u.telefono || '—'}</span>
+                <span>🎯 ${areaMostrada}${subareaDisplay}</span>
+                <span>📢 ${u.telefono || '—'}</span>
                 <span>📅 ${fechaReg}</span>
             </div>
+            ${jerarquiaHtml}
             ${u.correo === sesion.correo ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);"><button class="btn-secondary btn-mi-perfil" style="padding:5px 12px;font-size:0.75rem;color:var(--primary-color);border-color:rgba(79,172,254,0.4);">👤 Mi Perfil</button></div>` : ''}
             ${accionesParaRol(u)}`;
         return card;
@@ -537,6 +599,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('edit-password').value = '';
         const sel = document.getElementById('edit-area');
         if (sel) for (const opt of sel.options) opt.selected = opt.value === u.area;
+        // Mostrar/ocultar subarea si aplica
+        const subareaGroup = document.getElementById('edit-subarea-group');
+        const subareasEl = document.getElementById('edit-subarea');
+        if (subareaGroup && subareasEl) {
+            subareaGroup.style.display = u.area === 'T\u00e9cnica' ? '' : 'none';
+            if (u.subarea) for (const opt of subareasEl.options) opt.selected = opt.value === u.subarea;
+        }
         editModal.classList.remove('hidden');
     }
 
@@ -546,12 +615,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const nuevoNombre    = document.getElementById('edit-nombre').value.trim();
         const nuevoCorreo    = document.getElementById('edit-correo').value.trim();
         const nuevaArea      = document.getElementById('edit-area').value;
+        const nuevaSubarea   = nuevaArea === 'T\u00e9cnica' ? (document.getElementById('edit-subarea')?.value || 'Switcher') : '';
         const nuevaClave     = document.getElementById('edit-password').value;
         const correoOriginal = currentEditCorreo;
         const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         const idx = usuarios.findIndex(u => u.correo === correoOriginal);
         if (idx !== -1) {
-            usuarios[idx].nombre = nuevoNombre; usuarios[idx].correo = nuevoCorreo; usuarios[idx].area = nuevaArea;
+            usuarios[idx].nombre   = nuevoNombre;
+            usuarios[idx].correo   = nuevoCorreo;
+            usuarios[idx].area     = nuevaArea;
+            usuarios[idx].subarea  = nuevaSubarea;
             if (nuevaClave) {
                 hashPassword(nuevaClave).then(hash => {
                     usuarios[idx].clave = hash;
@@ -1741,7 +1814,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tel = document.getElementById('perfil-telefono');
         const cor = document.getElementById('perfil-correo');
         const dis = document.getElementById('perfil-distrito');
-        const areaSel = document.getElementById('perfil-area');
+        const areaSel    = document.getElementById('perfil-area');
+        const subareaSel = document.getElementById('perfil-subarea');
+        const subareaGrp = document.getElementById('perfil-subarea-group');
 
         if (inp) inp.value = sesion.nombre;
         if (cor) cor.value = sesion.correo;
@@ -1752,6 +1827,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (tel) tel.value = u.telefono || '';
             if (dis) dis.value = u.distrito || '';
             if (areaSel) areaSel.value = u.area || '';
+            // Manejar subarea de Técnica
+            if (subareaGrp && subareaSel) {
+                subareaGrp.style.display = u.area === 'T\u00e9cnica' ? '' : 'none';
+                if (u.subarea) subareaSel.value = u.subarea;
+            }
 
             // Cargar imagen de perfil
             const imgEl = document.getElementById('perfil-foto-img');
@@ -1913,6 +1993,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 usuarios[idx].telefono = nuevoTel;
                 usuarios[idx].distrito = nuevoDis;
                 usuarios[idx].area     = nuevaArea;
+                usuarios[idx].subarea  = nuevaArea === 'T\u00e9cnica' ? (document.getElementById('perfil-subarea')?.value || 'Switcher') : '';
                 if (nuevaClave) {
                     const hash = await hashPassword(nuevaClave);
                     usuarios[idx].clave = hash;
@@ -2263,7 +2344,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 Object.entries(grupos).forEach(([key, items]) => {
                     const sep = document.createElement('div');
                     sep.className = 'recurso-servicio-sep';
-                    sep.style.opacity = '0.6';
+                    sep.style.opacity = '0.5';
+                    sep.style.fontSize = '0.75rem';
                     // Obtener la fecha real del servicio expirado
                     const fechaSubida = items[0].fecha ? new Date(items[0].fecha).toLocaleDateString('es', { day:'numeric', month:'short', year:'numeric' }) : '';
                     sep.textContent = `${getHistorialLabel(key)}${fechaSubida ? ' — ' + fechaSubida : ''}`;
@@ -2272,18 +2354,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     items.forEach(p => {
                         const realIdx = pdfs.indexOf(p);
                         const row = document.createElement('div');
-                        row.className = 'recurso-card';
-                        row.style.opacity = '0.6';
-                        const subtitulo = p.nombreArchivo || '';
+                        // Fila compacta de una sola línea
+                        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;opacity:0.55;transition:opacity 0.2s;cursor:pointer;';
+                        row.onmouseenter = () => row.style.opacity = '0.85';
+                        row.onmouseleave = () => row.style.opacity = '0.55';
                         row.innerHTML = `
-                            <div class="recurso-link btn-abrir-doc" data-idx="${realIdx}" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:12px;">
-                                <div class="recurso-thumb-placeholder" style="font-size:1.2rem;">📄</div>
-                                <div class="recurso-info">
-                                    <span class="recurso-titulo">${p.titulo}</span>
-                                    ${subtitulo ? `<span class="recurso-url">${subtitulo}</span>` : ''}
-                                </div>
-                            </div>
-                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:4px 8px;font-size:0.7rem;flex-shrink:0;">🗑️</button>` : ''}`;
+                            <span style="font-size:0.82rem;flex-shrink:0;color:var(--text-muted);">📄</span>
+                            <span class="btn-abrir-doc" data-idx="${realIdx}" style="flex:1;font-size:0.82rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.titulo}</span>
+                            ${puedeSubir ? `<button class="btn-danger btn-del-recurso-pdf" data-idx="${realIdx}" style="padding:2px 7px;font-size:0.68rem;flex-shrink:0;opacity:0.7;">🗑️</button>` : ''}`;
                         historialLista.appendChild(row);
                     });
                 });
@@ -2449,7 +2527,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     poblarSelectorServicios(); // Poblar selector con fechas reales
 
     // ─── LIDERES DE AREA (vista Usuarios, solo Admin/SuperLider) ─
-    const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Switchers','Streaming','Luces','Diseño','Edición','Protocolos','Cámaras'];
+    const AREAS = ['Visuales','Filmakers','Fotografía','Coordinación','Técnica','Streaming','Luces','Diseño','Edición','Protocolos'];
 
     function cargarLideres() {
         const panel = document.getElementById('lideres-container');
@@ -2507,16 +2585,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // ─── LÓGICA DE PRESENCIA Y CHAT EN TIEMPO REAL ─────────────
+    // getSafeEmail está definida en el scope global (ver inicio del archivo)
 
-    // Normalizar correos para usarlos de claves seguras en Firebase
-    function getSafeEmail(email) {
-        if (!email) return '';
-        return email.toLowerCase().replace(/\./g, '_');
-    }
-
-    // Iniciar rastreo de presencia para el usuario actual
+    // Iniciar presencia AHORA que Auth ya está verificado
     const safeSelfEmail = getSafeEmail(sesion.correo);
-    DB.listenConexionState(safeSelfEmail);
+    DB.listenConexionState(safeSelfEmail, () => {
+        console.log('[Presencia] Conectado como:', sesion.nombre);
+    });
+
+    // Marcar offline al cerrar pestaña / navegar fuera
+    window.addEventListener('beforeunload', () => {
+        DB.setOffline(safeSelfEmail).catch(() => {});
+    });
 
     // Escuchar estado de conexión de todos los usuarios
     let presenciaUsuarios = {};
@@ -2820,32 +2900,110 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (link.getAttribute('data-target') === 'chat-view') {
             link.addEventListener('click', () => {
                 setTimeout(renderChatUsers, 50);
+                // Refrescar presencia propia al entrar al chat
+                const userRef = `${safeSelfEmail}`;
+                DB.listenConexionState(userRef);
             });
         }
     });
 
-    // ─── LISTENERS FIREBASE EN TIEMPO REAL ───────────────────
-    // Se registran al final para que todas las funciones estén definidas
-    DB.listenUsuarios(data => {
-        _lsSetItem('usuarios_registrados', JSON.stringify(data));
-        cargarTablaUsuarios(
-            document.getElementById('filtro-rol')?.value || '',
-            document.getElementById('filtro-area')?.value || ''
-        );
-        actualizarEstadisticas();
-        renderOnlineWidget();
+    // ─── REGISTRAR FUNCIONES GLOBALES PARA LISTENERS EN TIEMPO REAL ──
+    // Estas son llamadas por sincronizarDesdeFirebase() cuando appReady=true
+    window._cargarTablaUsuarios     = () => cargarTablaUsuarios(
+        document.getElementById('filtro-rol')?.value || '',
+        document.getElementById('filtro-area')?.value || ''
+    );
+    window._actualizarEstadisticas  = () => actualizarEstadisticas();
+    window._renderOnlineWidget      = () => renderOnlineWidget();
+    window._renderProyectos         = () => renderProyectos();
+    window._renderDashboard         = () => renderDashboardProyectosYTareas();
+    window._renderReservas          = () => renderReservasSemana();
+    window._renderDashProgramacion  = () => renderDashProgramacion();
+    window._renderRecursos          = () => renderRecursos();
+    window._renderRecursosPDFs      = () => renderRecursos();
+    window._renderChatUsers         = () => renderChatUsers();
+
+    // ─── BROADCAST DE CHAT (Admin / SuperLíder / Líder) ─────────
+    const puedeHacerBroadcast = sesion.rol === 'Admin' || sesion.rol === 'SuperLider' || sesion.rol === 'Lider';
+    const btnBroadcast = document.getElementById('btn-broadcast-chat');
+    if (btnBroadcast && puedeHacerBroadcast) {
+        btnBroadcast.style.display = 'inline-block';
+        // Prellenar el área destino según el rol del Líder
+        if (sesion.rol === 'Lider' && sesion.area) {
+            const broadcastSel = document.getElementById('broadcast-area');
+            if (broadcastSel) {
+                const opt = [...broadcastSel.options].find(o => o.value === sesion.area);
+                if (opt) broadcastSel.value = sesion.area;
+            }
+        }
+        btnBroadcast.addEventListener('click', () => {
+            document.getElementById('broadcast-modal')?.classList.remove('hidden');
+        });
+    }
+
+    // Cerrar broadcast-modal con X
+    document.querySelector('[data-modal="broadcast-modal"]')?.addEventListener('click', () => {
+        document.getElementById('broadcast-modal')?.classList.add('hidden');
     });
-    DB.listenProyectos(data => {
-        _lsSetItem('proyectos_creados', JSON.stringify(data));
-        renderProyectos(); renderDashboardProyectosYTareas();
+
+    document.getElementById('broadcast-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const areaDestino = document.getElementById('broadcast-area')?.value || '';
+        const mensaje     = document.getElementById('broadcast-message')?.value.trim() || '';
+        if (!mensaje) return;
+
+        // Si el Líder intenta enviar fuera de su área, bloquearlo
+        if (sesion.rol === 'Lider' && areaDestino && areaDestino !== sesion.area) {
+            showNotification('Solo puedes enviar mensajes a tu propia área.', 'error');
+            return;
+        }
+
+        const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
+        const destinatarios = usuarios.filter(u => {
+            if (u.correo.toLowerCase() === sesion.correo.toLowerCase()) return false;
+            if (!areaDestino) return true; // Broadcast a todos
+            return (u.area || '').toLowerCase() === areaDestino.toLowerCase();
+        });
+
+        if (destinatarios.length === 0) {
+            showNotification('No hay usuarios en esa área.', 'error');
+            return;
+        }
+
+        const textoFinal = `📢 [${areaDestino || 'Todos'}] ${mensaje}`;
+        const btnSubmit = e.target.querySelector('button[type="submit"]');
+        if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Enviando...'; }
+
+        try {
+            await Promise.all(destinatarios.map(u =>
+                DB.enviarMensaje({
+                    sender: sesion.correo,
+                    receiver: u.correo,
+                    text: textoFinal,
+                    timestamp: Date.now(),
+                    isBroadcast: true,
+                    areaDestino: areaDestino || 'Todos'
+                })
+            ));
+            document.getElementById('broadcast-modal')?.classList.add('hidden');
+            document.getElementById('broadcast-message').value = '';
+            showNotification(`✅ Mensaje enviado a ${destinatarios.length} usuario(s) del área.`);
+        } catch (err) {
+            console.error('Error broadcast:', err);
+            showNotification('Error al enviar el broadcast.', 'error');
+        } finally {
+            if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = '📤 Enviar a todos'; }
+        }
     });
-    DB.listenServicios(data => {
-        _lsSetItem('servicios_reservados', JSON.stringify(data));
-        renderReservasSemana(); actualizarEstadisticas();
-    });
-    DB.listenPdfs(data => {
-        _lsSetItem('recursos_pdfs', JSON.stringify(data));
-        renderDashProgramacion(); renderRecursos();
-    });
+
+    // ─── AUTO-ARCHIVADO PDFs: check cada minuto ───────────────
+    // esPdfExpirado ya está definido arriba — solo conectamos un intervalo
+    setInterval(() => {
+        if (window._renderRecursosPDFs) window._renderRecursosPDFs();
+        renderDashProgramacion();
+    }, 60000);
+
+    // Exportar render de PDFs para listeners en tiempo real
+    window._renderRecursosPDFs = () => renderRecursos();
 
 }); // fin DOMContentLoaded

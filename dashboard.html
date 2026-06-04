@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4facfe">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="ProDUC">
@@ -22,6 +23,16 @@
         <div class="glow-orb orb-1"></div>
         <div class="glow-orb orb-2"></div>
         <div class="glow-orb orb-3"></div>
+    </div>
+    <!-- OVERLAY DE CARGA INTERNO -->
+    <div id="dash-loading-overlay" style="
+        position:fixed;inset:0;z-index:9999;
+        background:linear-gradient(135deg,#0a0a1a 0%,#0d1b2a 50%,#0a0a1a 100%);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        color:white;transition:opacity 0.4s ease, transform 0.4s ease;
+    ">
+        <img src="icons/logo-catedral.png" alt="Cargando" style="width:130px; height:auto; margin-bottom:20px; animation:pulse 1.5s infinite; border-radius:50%; box-shadow: 0 0 20px rgba(79, 172, 254, 0.4);">
+        <h2 style="font-weight:700;letter-spacing:1px;" id="dash-loading-msg">Conectando...</h2>
     </div>
 
     <div class="dashboard-container">
@@ -159,13 +170,12 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Switchers">Switchers</option>
+                                <option value="Técnica">Técnica (Switchers/Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
                                 <option value="Edición">Edición</option>
                                 <option value="Protocolos">Protocolos</option>
-                                <option value="Cámaras">Cámaras</option>
                                 <option value="Administración">Administración</option>
                             </select>
                         </div>
@@ -221,7 +231,7 @@
                                 <div class="area-row" data-area="Filmakers"><span class="area-icono">🎥</span><span class="area-nombre">Filmakers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Fotografía"><span class="area-icono">📷</span><span class="area-nombre">Fotografía</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Coordinación"><span class="area-icono">📋</span><span class="area-nombre">Coordinación</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
-                                <div class="area-row" data-area="Switchers"><span class="area-icono">🎛️</span><span class="area-nombre">Switchers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Técnica"><span class="area-icono">🎛️</span><span class="area-nombre">Técnica (Switchers/Cámaras)</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Streaming"><span class="area-icono">📡</span><span class="area-nombre">Streaming</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Luces"><span class="area-icono">💡</span><span class="area-nombre">Luces</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Diseño"><span class="area-icono">🎨</span><span class="area-nombre">Diseño</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
@@ -336,8 +346,10 @@
                 <div class="chat-container glass-panel" style="display: flex; height: calc(100vh - 120px); min-height: 500px; padding: 0; overflow: hidden; border-radius: 16px;">
                     <!-- Panel izquierdo: Usuarios Conectados -->
                     <div class="chat-sidebar" style="width: 280px; border-right: 1px solid var(--panel-border); display: flex; flex-direction: column; background: rgba(0,0,0,0.15);">
-                        <div class="chat-sidebar-header" style="padding: 16px; border-bottom: 1px solid var(--panel-border);">
+                        <div class="chat-sidebar-header" style="padding: 16px; border-bottom: 1px solid var(--panel-border); display:flex; align-items:center; justify-content:space-between;">
                             <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Equipo en línea</h3>
+                            <!-- Botón broadcast solo visible para Admin/SuperLíder/Líder -->
+                            <button id="btn-broadcast-chat" title="Enviar mensaje al área" style="display:none; padding:4px 10px; font-size:0.75rem; border-radius:8px; border:1px solid rgba(79,172,254,0.4); background:rgba(79,172,254,0.1); color:var(--primary-color); cursor:pointer; transition:all 0.2s;">&#128226; Broadcast</button>
                         </div>
                         <div id="chat-users-list" style="flex: 1; overflow-y: auto; padding: 8px 0;">
                             <!-- Dinámico -->
@@ -411,14 +423,20 @@
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Switchers">Switchers</option>
+                                <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
                                 <option value="Edición">Edición</option>
                                 <option value="Protocolos">Protocolos</option>
-                                <option value="Cámaras">Cámaras</option>
                                 <option value="Administración">Administración</option>
+                            </select>
+                        </div>
+                        <div class="input-group" id="edit-subarea-group" style="display:none;">
+                            <label>Área Específica</label>
+                            <select id="edit-subarea">
+                                <option value="Switcher">Switcher</option>
+                                <option value="Cámaras">Cámaras</option>
                             </select>
                         </div>
                         <div class="input-group" style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:20px;">
@@ -490,13 +508,12 @@
                                 <div class="area-row" data-area="Filmakers"><span class="area-icono">🎥</span><span class="area-nombre">Filmakers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Fotografía"><span class="area-icono">📷</span><span class="area-nombre">Fotografía</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Coordinación"><span class="area-icono">📋</span><span class="area-nombre">Coordinación</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
-                                <div class="area-row" data-area="Switchers"><span class="area-icono">🎛️</span><span class="area-nombre">Switchers</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
+                                <div class="area-row" data-area="Técnica"><span class="area-icono">🎛️</span><span class="area-nombre">Técnica (Switchers/Cámaras)</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Streaming"><span class="area-icono">📡</span><span class="area-nombre">Streaming</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Luces"><span class="area-icono">💡</span><span class="area-nombre">Luces</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Diseño"><span class="area-icono">🎨</span><span class="area-nombre">Diseño</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Edición"><span class="area-icono">✂️</span><span class="area-nombre">Edición</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                                 <div class="area-row" data-area="Protocolos"><span class="area-icono">📜</span><span class="area-nombre">Protocolos</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
-                                <div class="area-row" data-area="Cámaras"><span class="area-icono">📸</span><span class="area-nombre">Cámaras</span><div class="area-counter"><button type="button" class="area-counter-btn area-minus">−</button><input type="number" class="area-cantidad" min="0" value="0"><button type="button" class="area-counter-btn area-plus">+</button></div></div>
                             </div>
                         </div>
                         <div class="input-group">
@@ -518,6 +535,38 @@
                         <input type="text" id="comentario-input" placeholder="Escribe un comentario..." maxlength="200">
                         <button class="btn-primary" id="btn-enviar-comentario" style="width:auto;margin-top:0;padding:8px 16px;font-size:0.85rem;">Enviar</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- MODAL: BROADCAST (Enviar mensaje a área) -->
+            <div id="broadcast-modal" class="modal hidden">
+                <div class="modal-content glass-panel" style="max-width:460px;">
+                    <span class="close-modal" data-modal="broadcast-modal">&times;</span>
+                    <h2>📢 Mensaje al Área</h2>
+                    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:20px;">Envía un mensaje a todos los miembros de un área.</p>
+                    <form id="broadcast-form" class="custom-form">
+                        <div class="input-group">
+                            <label>Área destino</label>
+                            <select id="broadcast-area" class="filter-select" style="width:100%;padding:10px 12px;">
+                                <option value="">Todas las áreas</option>
+                                <option value="Visuales">Visuales</option>
+                                <option value="Filmakers">Filmakers</option>
+                                <option value="Fotografía">Fotografía</option>
+                                <option value="Coordinación">Coordinación</option>
+                                <option value="Técnica">Técnica (Switchers/Cámaras)</option>
+                                <option value="Streaming">Streaming</option>
+                                <option value="Luces">Luces</option>
+                                <option value="Diseño">Diseño</option>
+                                <option value="Edición">Edición</option>
+                                <option value="Protocolos">Protocolos</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Mensaje</label>
+                            <textarea id="broadcast-message" rows="3" placeholder="Escribe el mensaje para el área..." maxlength="500" required style="resize:vertical;"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary" style="margin-top:10px;">📤 Enviar a todos</button>
+                    </form>
                 </div>
             </div>
         </main>
@@ -566,19 +615,25 @@
                         </div>
                         <div class="input-group">
                             <label>Área a la que perteneces</label>
-                            <select id="perfil-area" required>
+                            <select id="perfil-area" required onchange="document.getElementById('perfil-subarea-group').style.display=this.value==='Técnica'?'':'none'">
                                 <option value="Visuales">Visuales</option>
                                 <option value="Filmakers">Filmakers</option>
                                 <option value="Fotografía">Fotografía</option>
                                 <option value="Coordinación">Coordinación</option>
-                                <option value="Switchers">Switchers</option>
+                                <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
                                 <option value="Streaming">Streaming</option>
                                 <option value="Luces">Luces</option>
                                 <option value="Diseño">Diseño</option>
                                 <option value="Edición">Edición</option>
                                 <option value="Protocolos">Protocolos</option>
-                                <option value="Cámaras">Cámaras</option>
                                 <option value="Administración">Administración</option>
+                            </select>
+                        </div>
+                        <div class="input-group" id="perfil-subarea-group" style="display:none;">
+                            <label>Área Específica</label>
+                            <select id="perfil-subarea">
+                                <option value="Switcher">🎛️ Switcher</option>
+                                <option value="Cámaras">📸 Cámaras</option>
                             </select>
                         </div>
                         <div class="input-group">

@@ -6,10 +6,20 @@
     <title>Producción - Portal de Acceso</title>
     <!-- Mejora SEO -->
     <meta name="description" content="Portal de acceso y registro para el equipo de producción. Únete a nuestro equipo en diferentes áreas.">
+    <!-- Preconnect para acelerar recursos externos -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://produccion-erp-bea1a-default-rtdb.firebaseio.com" crossorigin>
+    <!-- Preload de recursos críticos -->
+    <link rel="preload" href="style.css" as="style">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" as="style">
+    <!-- Estilos -->
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4facfe">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="ProDUC">
@@ -114,19 +124,26 @@
                 </div>
                 <div class="input-group">
                     <label for="reg-area">Área a la que perteneces</label>
-                    <select id="reg-area" required>
+                    <select id="reg-area" required onchange="document.getElementById('tecnica-subarea-group').style.display=this.value==='T\u00e9cnica'?'':'none'">
                         <option value="" disabled selected>Selecciona un área...</option>
                         <option value="Visuales">Visuales</option>
                         <option value="Filmakers">Filmakers</option>
                         <option value="Fotografía">Fotografía</option>
                         <option value="Coordinación">Coordinación</option>
-                        <option value="Switchers">Switchers</option>
+                        <option value="Técnica">🎛️ Técnica (Switchers / Cámaras)</option>
                         <option value="Streaming">Streaming</option>
                         <option value="Luces">Luces</option>
                         <option value="Diseño">Diseño</option>
                         <option value="Edición">Edición</option>
                         <option value="Protocolos">Protocolos</option>
-                        <option value="Cámaras">Cámaras</option>
+                    </select>
+                </div>
+                <!-- Sub-área para Técnica -->
+                <div class="input-group" id="tecnica-subarea-group" style="display:none;">
+                    <label for="reg-subarea">Área Específica</label>
+                    <select id="reg-subarea">
+                        <option value="Switcher">🎛️ Switcher</option>
+                        <option value="Cámaras">📸 Cámaras</option>
                     </select>
                 </div>
                 <button type="submit" class="btn-primary">Completar Registro</button>
@@ -136,6 +153,39 @@
             </div>
         </div>
     </main>
-    <script src="script.js" type="module"></script>
+
+    <!-- Pantalla de carga post-login -->
+    <div id="loading-screen" class="loading-screen" style="display:none">
+        <div class="loading-bg-orbs">
+            <div class="loading-orb lo-1"></div>
+            <div class="loading-orb lo-2"></div>
+            <div class="loading-orb lo-3"></div>
+        </div>
+        <div class="loading-content">
+            <div class="loading-logo">
+                <span class="loading-logo-text">Pro<span class="loading-logo-accent">DUC</span></span>
+                <div class="loading-logo-glow"></div>
+            </div>
+            <div class="loading-ring-wrapper">
+                <svg class="loading-ring" viewBox="0 0 120 120">
+                    <defs>
+                        <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#4facfe"/>
+                            <stop offset="100%" stop-color="#00f2fe"/>
+                        </linearGradient>
+                    </defs>
+                    <circle class="ring-track" cx="60" cy="60" r="50"/>
+                    <circle class="ring-fill" cx="60" cy="60" r="50" id="ring-progress"/>
+                </svg>
+                <div class="loading-countdown" id="loading-countdown">3</div>
+            </div>
+            <p class="loading-label" id="loading-label">Preparando tu espacio...</p>
+            <div class="loading-dots">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js" type="module" defer></script>
 </body>
 </html>

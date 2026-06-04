@@ -4,15 +4,28 @@
 import { DB, AUTH } from './firebase.js';
 import { showNotification } from './utils.js';
 
-// Registrar Service Worker para PWA
+// Registrar Service Worker en idle para no bloquear la carga
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    const registerSW = () => navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(registerSW);
+    } else {
+        setTimeout(registerSW, 500);
+    }
 }
 
 // Estilos de animación
 const style = document.createElement('style');
 style.textContent = `@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`;
 document.head.appendChild(style);
+
+
+/**
+ * Redirige al dashboard.
+ */
+function irAlDashboard() {
+    window.location.replace('dashboard.html');
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     const loginPanel      = document.getElementById('login-panel');
@@ -29,8 +42,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.replace('dashboard.html');
         return;
     }
-    // Migrar datos locales a Firebase si existen
-    await DB.migrarDesdeLocalStorage();
+    // Migrar datos locales a Firebase en background (sin bloquear UI)
+    DB.migrarDesdeLocalStorage().catch(() => {});
 
     const switchPanel = (hidePanel, showPanel) => {
         hidePanel.style.opacity = '0';
@@ -108,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     uid:    userCredential.user.uid
                 }));
                 showNotification(`¡Bienvenido, ${usuario.nombre.split(' ')[0]}!`);
-                setTimeout(() => { window.location.replace('dashboard.html'); }, 900);
+                irAlDashboard();
             } catch (error) {
                 btn.textContent = 'Iniciar Sesión';
                 btn.style.pointerEvents = 'all';
@@ -137,6 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const apellido = document.getElementById('reg-apellido')?.value.trim() || '';
             const correo   = document.getElementById('reg-correo')?.value.trim() || '';
             const area     = document.getElementById('reg-area')?.value || '';
+            const subarea  = area === 'T\u00e9cnica' ? (document.getElementById('reg-subarea')?.value || 'Switcher') : '';
             const telefono = document.getElementById('reg-telefono')?.value.trim() || '';
             const pwd      = document.getElementById('reg-password')?.value || '';
             const pwdConf  = document.getElementById('reg-password-confirm')?.value || '';
@@ -165,6 +179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     nombre: `${nombre} ${apellido}`.trim(),
                     correo,
                     area,
+                    subarea,
                     telefono,
                     rol: 'Siervo',
                     fecha: new Date().toISOString()

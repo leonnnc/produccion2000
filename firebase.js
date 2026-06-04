@@ -67,12 +67,32 @@ async function getObject(key) {
     return snap.exists() ? snap.val() : {};
 }
 
-/** Escucha cambios en tiempo real en una colección */
+/** Escucha cambios en tiempo real en una colección (array) */
 function listenCollection(key, callback) {
     onValue(ref(db, key), (snap) => {
         if (!snap.exists()) { callback([]); return; }
         const val = snap.val();
         callback(Array.isArray(val) ? val.filter(Boolean) : Object.values(val));
+    });
+}
+
+/** Escucha cambios en tiempo real en un objeto (preserva claves) */
+function listenObject(key, callback) {
+    onValue(ref(db, key), (snap) => {
+        callback(snap.exists() ? snap.val() : {});
+    });
+}
+
+/** Escucha mensajes ordenados por timestamp */
+function listenMensajesOrdenados(key, callback) {
+    onValue(ref(db, key), (snap) => {
+        if (!snap.exists()) { callback([]); return; }
+        const val = snap.val();
+        const arr = Array.isArray(val)
+            ? val.filter(Boolean)
+            : Object.values(val);
+        arr.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        callback(arr);
     });
 }
 
@@ -96,33 +116,57 @@ export const STORAGE = {
     }
 };
 
+// Bandera para evitar registrar múltiples listeners de presencia
+let _presenciaInicializada = false;
+
 export const DB = {
     // Presencia y Chat
     listenConexionState: (key, cb) => {
-        onValue(ref(db, '.info/connected'), (snap) => {
-            if (snap.val() === true) {
-                const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
-                const presenceStateOffline = { online: false, ultima_conexion: Date.now() };
-                const presenceStateOnline  = { online: true, ultima_conexion: Date.now() };
-                
-                onDisconnect(userPresenceRef).set(presenceStateOffline).then(() => {
-                    set(userPresenceRef, presenceStateOnline);
+        if (_presenciaInicializada) {
+            // Ya inicializada: solo actualizar el estado online si ya hay conexión
+            const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
+            const connRef = ref(db, '.info/connected');
+            onValue(connRef, (snap) => {
+                if (snap.val() !== true) return;
+                const offlineState = { online: false, ultima_conexion: Date.now() };
+                const onlineState  = { online: true,  ultima_conexion: Date.now() };
+                onDisconnect(userPresenceRef).set(offlineState).then(() => {
+                    set(userPresenceRef, onlineState);
                     if (cb) cb(true);
                 });
-            }
+            }, { onlyOnce: true }); // solo una vez para no acumular
+            return;
+        }
+        _presenciaInicializada = true;
+        // Usar onAuthStateChanged para garantizar que Firebase Auth esté listo
+        onAuthStateChanged(auth, (user) => {
+            if (!user) return; // No autenticado, no registrar presencia
+            const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
+            const connRef = ref(db, '.info/connected');
+            onValue(connRef, (snap) => {
+                if (snap.val() !== true) return;
+                const offlineState = { online: false, ultima_conexion: Date.now() };
+                const onlineState  = { online: true,  ultima_conexion: Date.now() };
+                onDisconnect(userPresenceRef).set(offlineState).then(() => {
+                    set(userPresenceRef, onlineState);
+                    if (cb) cb(true);
+                });
+            });
         });
     },
     setOffline: async (key) => {
         const userPresenceRef = ref(db, `${KEYS.presencia}/${key}`);
         await set(userPresenceRef, { online: false, ultima_conexion: Date.now() });
     },
-    listenPresencia: (cb) => listenCollection(KEYS.presencia, cb),
+    // listenPresencia usa listenObject para preservar las claves email
+    listenPresencia: (cb) => listenObject(KEYS.presencia, cb),
     enviarMensaje: async (msgObj) => {
         const chatRef = ref(db, KEYS.chats);
         const newMsgRef = push(chatRef);
         await set(newMsgRef, msgObj);
     },
-    listenMensajes: (cb) => listenCollection(KEYS.chats, cb),
+    // Mensajes ordenados por timestamp
+    listenMensajes: (cb) => listenMensajesOrdenados(KEYS.chats, cb),
 
     // Usuarios
     getUsuarios:    () => getCollection(KEYS.usuarios),
