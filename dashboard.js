@@ -1565,7 +1565,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
-        const visibles  = servicios.filter(s => esAdmin || esLider || s.usuario === userName);
+        const ahoraTime = new Date().getTime();
+        const MAX_DAYS_MS = 8 * 24 * 60 * 60 * 1000; // 8 días
+        
+        const visibles  = servicios.filter(s => {
+            if (!(esAdmin || esLider || s.usuario === userName)) return false;
+            const f = servicioToDate(s.servicio, s.fecha);
+            if (!f) return true;
+            const diff = f.getTime() - ahoraTime;
+            return diff > -(2 * 60 * 60 * 1000) && diff <= MAX_DAYS_MS;
+        });
         panel.innerHTML = '';
         if (visibles.length === 0) {
             panel.innerHTML = '<li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados aún.</span></li>';
