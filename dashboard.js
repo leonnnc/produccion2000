@@ -277,6 +277,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (target) { target.classList.remove('hidden-view'); target.classList.add('active-view'); }
         // Regenerar agenda al navegar a ella
         if (targetId === 'agenda-view') setTimeout(() => generateAgendaMonth(), 100);
+        
+        // Manejar autoplay de transmisión en vivo
+        if (targetId === 'transmision-view') {
+            if (window._renderTransmisionView) window._renderTransmisionView();
+        } else {
+            const iframe = document.getElementById('transmision-iframe');
+            if (iframe) iframe.src = '';
+        }
     }
 
     navLinks.forEach(link => {
@@ -3444,7 +3452,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
     window._renderTransmisionView = renderTransmisionView;
-    renderTransmisionView();
+    // renderTransmisionView() ya NO se llama aquí para evitar autoplay oculto.
+    // Solo se llama desde la función irA('transmision-view') al abrir la pestaña.
 
     // ─── AUTO-ARCHIVADO PDFs: check cada minuto ───────────────
     // esPdfExpirado ya está definido arriba — solo conectamos un intervalo
