@@ -1560,20 +1560,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function renderReservasSemana() {
         const panel = document.getElementById('servicios-semana-list');
+        const filtroSelect = document.getElementById('filtro-tiempo-dash');
+        const tituloSpan = document.getElementById('servicios-titulo');
         if (!panel) return;
+        
+        if (esAdmin || esLider) {
+            if (filtroSelect) filtroSelect.style.display = 'inline-block';
+        }
+
         const userName  = sesion.nombre;
         const usuarios  = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
         const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
         const lideres   = JSON.parse(localStorage.getItem('lideres_area') || '{}');
-        const ahoraTime = new Date().getTime();
-        const MAX_DAYS_MS = 8 * 24 * 60 * 60 * 1000; // 8 días
+        const ahora = new Date();
+        const ahoraTime = ahora.getTime();
         
+        const modo = filtroSelect ? filtroSelect.value : 'semana';
+        if (tituloSpan) {
+            tituloSpan.textContent = modo === 'semana' ? 'Servicios de la Semana' :
+                                     modo === 'mes' ? 'Servicios Este Mes' : 'Servicios Próximo Mes';
+        }
+
         const visibles  = servicios.filter(s => {
             if (!(esAdmin || esLider || s.usuario === userName)) return false;
             const f = servicioToDate(s.servicio, s.fecha);
             if (!f) return true;
-            const diff = f.getTime() - ahoraTime;
-            return diff > -(2 * 60 * 60 * 1000) && diff <= MAX_DAYS_MS;
+            
+            if (modo === 'semana') {
+                const MAX_DAYS_MS = 8 * 24 * 60 * 60 * 1000;
+                const diff = f.getTime() - ahoraTime;
+                return diff > -(2 * 60 * 60 * 1000) && diff <= MAX_DAYS_MS;
+            } else if (modo === 'mes') {
+                return f.getMonth() === ahora.getMonth() && f.getFullYear() === ahora.getFullYear();
+            } else if (modo === 'proximo_mes') {
+                let proxMes = ahora.getMonth() + 1;
+                let proxAnio = ahora.getFullYear();
+                if (proxMes > 11) { proxMes = 0; proxAnio++; }
+                return f.getMonth() === proxMes && f.getFullYear() === proxAnio;
+            }
+            return true;
         });
         panel.innerHTML = '';
         if (visibles.length === 0) {
@@ -1674,6 +1699,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    document.getElementById('filtro-tiempo-dash')?.addEventListener('change', renderReservasSemana);
+
     // ─── PROGRAMACIÓN EN DASHBOARD (todos los roles) ────────────
 
     /**
@@ -1695,7 +1722,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         const ahora = new Date();
-        const DOS_HORAS_MS = 2 * 60 * 60 * 1000;
+        const TRES_HORAS_MS = 3 * 60 * 60 * 1000;
 
         // Evento especial: expira 2h después de su hora de inicio
         if (p.servicio.startsWith('especial_')) {
@@ -1704,7 +1731,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!proy || !proy.fecha) return false;
             const hora = proy.hora || '00:00';
             const fechaEvento = new Date(`${proy.fecha}T${hora}:00`);
-            return ahora.getTime() > fechaEvento.getTime() + DOS_HORAS_MS;
+            return ahora.getTime() > fechaEvento.getTime() + TRES_HORAS_MS;
         }
 
         const cfg = SERVICIOS_INICIO[p.servicio];
@@ -1723,9 +1750,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         candidato.setHours(cfg.h, cfg.m, 0, 0);
 
-        const expira = candidato.getTime() + DOS_HORAS_MS;
+        const expira = candidato.getTime() + TRES_HORAS_MS;
 
-        // Si ya pasaron 2h desde ese servicio → expirado
+        // Si ya pasaron 3h desde ese servicio → expirado
         return ahora.getTime() > expira;
     }
 
@@ -1859,7 +1886,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     : '';
                 listaProy.innerHTML = `<li><div class="dash-bienvenida">
                     <div class="dash-bienvenida-icon">\ud83d\udc4b</div>
-                    <p>Hola <strong>${sesion.nombre.split(' ')[0]}</strong>, a\u00fan no tienes proyectos asignados.<br>Cuando el Admin te asigne a un evento aparecer\u00e1 aqu\u00ed.</p>
+                    <p>Hola <strong>${sesion.nombre.split(' ')[0]}</strong>, aún no tienes proyectos asignados.<br>Cuando tu Líder te asigne a un evento aparecerá aquí.</p>
                     ${proximoServicio}
                 </div></li>`;
             } else {
@@ -2607,7 +2634,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
 
                 SERVICIOS_SEMANA.forEach(srv => {
-                    const srvPdfs = pdfs.filter(p => p.servicio === srv.value);
+                    const srvPdfs = pdfs.filter(p => p.servicio === srv.value && !esPdfExpirado(p));
                     if (srvPdfs.length === 0) return;
                     const fechaReal = getFechasServicio(srv.value);
                     const sep = document.createElement('div');
@@ -2617,9 +2644,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     srvPdfs.forEach(p => listaPdfs.appendChild(renderPdfCard(p, pdfs.indexOf(p))));
                 });
 
-                // Eventos especiales
+                // Eventos especiales (solo no expirados en lista activa)
                 const gruposEspeciales = {};
-                pdfs.filter(p => p.servicio && p.servicio.startsWith('especial_')).forEach(p => {
+                pdfs.filter(p => p.servicio && p.servicio.startsWith('especial_') && !esPdfExpirado(p)).forEach(p => {
                     if (!gruposEspeciales[p.servicio]) gruposEspeciales[p.servicio] = [];
                     gruposEspeciales[p.servicio].push(p);
                 });
@@ -3370,31 +3397,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnConfigTransmision.classList.remove('hidden');
         btnConfigTransmision.addEventListener('click', () => {
             const urlActual = localStorage.getItem('transmision_url') || '';
-            const nuevaUrl = prompt('Ingresa la URL de YouTube Live (Ej: https://youtube.com/watch?v=...):', urlActual);
+            const nuevaUrl = prompt('Ingresa la URL del video en vivo (Ej: https://youtube.com/watch?v=...)\n\nIMPORTANTE: Si lo dejas en BLANCO, el sistema buscará transmisiones automáticamente los Domingos y Miércoles.', urlActual);
             if (nuevaUrl !== null) {
                 let urlFinal = nuevaUrl.trim();
-                const ytMatch = urlFinal.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-                if (ytMatch) {
-                    urlFinal = `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1`;
+                if (urlFinal === '') {
+                    localStorage.removeItem('transmision_url');
+                    showNotification('Modo automático activado (Domingos y Miércoles).');
+                } else {
+                    const ytMatch = urlFinal.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|live\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+                    if (ytMatch) {
+                        urlFinal = `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1`;
+                    }
+                    localStorage.setItem('transmision_url', urlFinal);
+                    showNotification('Transmisión manual actualizada.');
                 }
-                localStorage.setItem('transmision_url', urlFinal);
                 renderTransmisionView();
-                showNotification('URL de transmisión actualizada.');
             }
         });
     }
 
     function renderTransmisionView() {
         if (!transmisionIframe) return;
-        const url = localStorage.getItem('transmision_url');
-        if (url) {
-            transmisionIframe.src = url;
+        
+        const urlManual = localStorage.getItem('transmision_url');
+        const canalUrl = "https://www.youtube.com/embed/live_stream?channel=UC0XjfZF7rFUA9eS0Ok6pJvg&autoplay=1";
+        
+        const ahora = new Date();
+        const dia = ahora.getDay();
+        const hora = ahora.getHours();
+        
+        let enVivoAutomatico = false;
+        // Domingos de 7am a 10pm (22h)
+        if (dia === 0 && hora >= 7 && hora < 22) enVivoAutomatico = true;
+        // Miércoles de 6pm a 10pm
+        if (dia === 3 && hora >= 18 && hora < 22) enVivoAutomatico = true;
+
+        if (urlManual || enVivoAutomatico) {
+            transmisionIframe.src = urlManual ? urlManual : canalUrl;
             transmisionIframe.style.display = 'block';
             transmisionPlaceholder.style.display = 'none';
         } else {
             transmisionIframe.src = '';
             transmisionIframe.style.display = 'none';
             transmisionPlaceholder.style.display = 'flex';
+            transmisionPlaceholder.innerHTML = '<span style="font-size:2rem;margin-bottom:10px;">⏳</span><p>Esperando la siguiente transmisión en vivo...</p><p style="font-size:0.75rem;margin-top:5px;opacity:0.7;">Domingos (Mañana/Tarde) y Miércoles (Noche)</p>';
         }
     }
     window._renderTransmisionView = renderTransmisionView;

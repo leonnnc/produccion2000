@@ -151,8 +151,13 @@
                 </section>
                 <section class="dashboard-details">
                     <div class="details-panel glass-panel">
-                        <div class="panel-heading">
-                            <h3>Servicios Esta Semana</h3>
+                        <div class="panel-heading" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3 id="servicios-titulo">Servicios de la Semana</h3>
+                            <select id="filtro-tiempo-dash" class="filter-select" style="font-size:0.75rem; padding:4px 8px; max-width:130px; display:none;">
+                                <option value="semana">Próximos 8 Días</option>
+                                <option value="mes">Este Mes</option>
+                                <option value="proximo_mes">Próximo Mes</option>
+                            </select>
                         </div>
                         <ul class="activity-list" id="servicios-semana-list">
                             <li><span style="color:var(--text-muted);font-size:0.9rem;">Sin servicios reservados esta semana.</span></li>
