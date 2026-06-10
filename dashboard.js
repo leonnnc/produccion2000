@@ -1439,9 +1439,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (nombreLiderArea && nombreLiderArea !== sesion.nombre) {
                 const usuarios = JSON.parse(localStorage.getItem('usuarios_registrados') || '[]');
                 const objLider = usuarios.find(u => u.nombre === nombreLiderArea);
-                if (objLider && objLider.uid) {
+                if (objLider && objLider.uid && window.DB && window.DB.crearNotificacion) {
                     selected.forEach(opt => {
-                        AUTH.crearNotificacion(objLider.uid, 'Nueva Asignación', `${userName} se ha agendado para: ${opt.value}`).catch(()=>{});
+                        window.DB.crearNotificacion(objLider.uid, 'Nueva Asignación', `${userName} se ha agendado para: ${opt.value}`).catch(()=>{});
                     });
                 }
             }
