@@ -83,19 +83,18 @@ function renderCharts(areaFilter) {
     }
     const correosTarget = usuariosTarget.map(u => u.correo.toLowerCase());
 
-    // Procesar Datos para Gráficos
+    // Procesar Datos Unificados (Proyectos Especiales + Servicios Semanales)
+    const servicios = JSON.parse(localStorage.getItem('servicios_reservados') || '[]');
+    const nombresTarget = usuariosTarget.map(u => u.nombre);
+    
     let totalConfirmados = 0;
     let totalAusencias = 0;
-    let eventosEvaluados = proyectos.length;
+    let totalRespuestasProyectos = 0;
 
-    // Para gráfico de Barras: Asistencia por Evento (Últimos 5)
-    const eventosRecientes = proyectos.slice(-5);
-    const labelsEventos = [];
-    const dataConfirmados = [];
-    const dataAusencias = [];
+    const listaUnificada = [];
 
-    eventosRecientes.forEach(proy => {
-        labelsEventos.push(proy.nombre.length > 15 ? proy.nombre.substring(0,15)+'...' : proy.nombre);
+    // 1. Añadir Proyectos Especiales
+    proyectos.forEach(proy => {
         let conf = 0;
         let aus = 0;
         correosTarget.forEach(correo => {
@@ -103,11 +102,43 @@ function renderCharts(areaFilter) {
             if (res === 'confirma') conf++;
             else if (res === 'no-puedo') aus++;
         });
-        dataConfirmados.push(conf);
-        dataAusencias.push(aus);
-        
-        totalConfirmados += conf;
-        totalAusencias += aus;
+        totalRespuestasProyectos += (conf + aus);
+        listaUnificada.push({ nombre: proy.nombre, conf, aus });
+    });
+
+    // 2. Añadir Servicios Semanales (Agrupados)
+    const mapServicios = {};
+    servicios.forEach(s => {
+        if (nombresTarget.includes(s.usuario)) {
+            if (!mapServicios[s.servicio]) mapServicios[s.servicio] = { conf: 0, aus: 0 };
+            if (s.ausente) mapServicios[s.servicio].aus++;
+            else mapServicios[s.servicio].conf++;
+        }
+    });
+
+    Object.keys(mapServicios).forEach(nombreServicio => {
+        const stats = mapServicios[nombreServicio];
+        listaUnificada.push({ nombre: nombreServicio, conf: stats.conf, aus: stats.aus });
+    });
+
+    // Sumar totales
+    listaUnificada.forEach(item => {
+        totalConfirmados += item.conf;
+        totalAusencias += item.aus;
+    });
+
+    const eventosEvaluados = listaUnificada.length;
+
+    // Para gráfico de Barras: Asistencia por Evento (Últimos 5 combinados)
+    const eventosRecientes = listaUnificada.slice(-5);
+    const labelsEventos = [];
+    const dataConfirmados = [];
+    const dataAusencias = [];
+
+    eventosRecientes.forEach(item => {
+        labelsEventos.push(item.nombre.length > 15 ? item.nombre.substring(0,15)+'...' : item.nombre);
+        dataConfirmados.push(item.conf);
+        dataAusencias.push(item.aus);
     });
 
     // Actualizar KPIs
@@ -155,7 +186,8 @@ function renderCharts(areaFilter) {
     const ctxDoughnut = document.getElementById('chartDoughnutEstado');
     if (ctxDoughnut) {
         if (chartDoughnut) chartDoughnut.destroy();
-        const sinRespuesta = (eventosEvaluados * correosTarget.length) - (totalConfirmados + totalAusencias);
+        // "Sin Respuesta" solo aplica matemáticamente a Proyectos Especiales
+        const sinRespuesta = Math.max(0, (proyectos.length * correosTarget.length) - totalRespuestasProyectos);
         chartDoughnut = new Chart(ctxDoughnut, {
             type: 'doughnut',
             data: {
